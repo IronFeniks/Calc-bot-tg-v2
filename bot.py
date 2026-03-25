@@ -63,10 +63,11 @@ async def post_init(application: Application):
     
     try:
         # Инициализируем SQLite
+        from price_db import init_prices_db
         init_prices_db()
         logger.info("✅ SQLite инициализирован")
         
-        # Инициализируем ExcelHandler (будет создан позже)
+        # Инициализируем ExcelHandler
         from excel_handler import ExcelHandler, set_excel_handler
         excel_handler = ExcelHandler()
         set_excel_handler(excel_handler)
@@ -83,7 +84,7 @@ async def post_init(application: Application):
         
     except Exception as e:
         logger.exception(f"❌ Критическая ошибка в post_init: {e}")
-
+        
 # ==================== MAIN ====================
 
 def main():
