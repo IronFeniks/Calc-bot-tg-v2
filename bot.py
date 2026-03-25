@@ -5,6 +5,10 @@ import subprocess
 import sys
 import os
 
+# ==================== ИМПОРТЫ ДЛЯ ТИПОВ (до автоустановки) ====================
+# Эти импорты нужны для аннотаций типов, они не требуют установленных пакетов
+from typing import Any
+
 # ==================== АВТОУСТАНОВКА ЗАВИСИМОСТЕЙ ====================
 def install_requirements():
     """Автоматически устанавливает зависимости из requirements.txt"""
@@ -22,7 +26,7 @@ def install_requirements():
 
 install_requirements()
 
-# ==================== ИМПОРТЫ ====================
+# ==================== ИМПОРТЫ ПОСЛЕ УСТАНОВКИ ====================
 import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
