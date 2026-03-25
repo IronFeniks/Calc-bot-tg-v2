@@ -1,20 +1,30 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import logging
+import subprocess
 import sys
 import os
 
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+# ==================== АВТОУСТАНОВКА ЗАВИСИМОСТЕЙ ====================
+def install_requirements():
+    """Автоматически устанавливает зависимости из requirements.txt"""
+    try:
+        req_file = '/app/requirements.txt'
+        if not os.path.exists(req_file):
+            print("⚠️ requirements.txt не найден")
+            return
+        
+        print("📦 Проверка и установка зависимостей...")
+        subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-r', req_file])
+        print("✅ Все зависимости установлены")
+    except Exception as e:
+        print(f"⚠️ Ошибка установки зависимостей: {e}")
 
-from config import BOT_TOKEN, GROUP_ID, TOPIC_ID
-from price_db import init_prices_db
-from handlers.router import router_handler
-from handlers.calculator import start_calculator, cancel_calculator, help_calculator
-from handlers.admin import start_admin, cancel_admin, help_admin
-from keyboards.admin import main_menu_keyboard
+install_requirements()
 
 # ==================== НАСТРОЙКА ЛОГИРОВАНИЯ ====================
+import logging
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -29,6 +39,7 @@ logging.getLogger('httpx').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 logger.info("🚀 Запуск объединённого бота...")
 
+# ... остальной код бота ...
 # ==================== ГЛОБАЛЬНЫЕ ОБРАБОТЧИКИ ====================
 
 async def start_command(update, context):
