@@ -5,10 +5,6 @@ import subprocess
 import sys
 import os
 
-# ==================== ИМПОРТЫ ДЛЯ ТИПОВ (до автоустановки) ====================
-# Эти импорты нужны для аннотаций типов, они не требуют установленных пакетов
-from typing import Any
-
 # ==================== АВТОУСТАНОВКА ЗАВИСИМОСТЕЙ ====================
 def install_requirements():
     """Автоматически устанавливает зависимости из requirements.txt"""
@@ -26,7 +22,7 @@ def install_requirements():
 
 install_requirements()
 
-# ==================== ИМПОРТЫ ПОСЛЕ УСТАНОВКИ ====================
+# ==================== ИМПОРТЫ ====================
 import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
@@ -57,25 +53,31 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /start — маршрутизирует в зависимости от контекста"""
     await router_handler(update, context, command="start")
 
+
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /admin — переход в режим администрирования"""
     await router_handler(update, context, command="admin")
+
 
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /cancel — отмена текущего действия"""
     await router_handler(update, context, command="cancel")
 
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /help — справка"""
     await router_handler(update, context, command="help")
+
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик текстовых сообщений"""
     await router_handler(update, context, command="message")
 
+
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик callback кнопок"""
     await router_handler(update, context, command="callback")
+
 
 # ==================== POST_INIT ====================
 
@@ -105,6 +107,7 @@ async def post_init(application: Application):
         
     except Exception as e:
         logger.exception(f"❌ Критическая ошибка в post_init: {e}")
+
 
 # ==================== MAIN ====================
 
@@ -140,6 +143,7 @@ def main():
     except Exception as e:
         logger.exception(f"❌ Критическая ошибка в main: {e}")
         raise
+
 
 if __name__ == '__main__':
     main()
