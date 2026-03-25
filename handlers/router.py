@@ -44,24 +44,24 @@ async def router_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     is_topic = False
     
     # Определяем, где находится сообщение
-if chat_id == GROUP_ID:
-    # Сообщение в группе
-    if update.message:
-        topic_id = update.message.message_thread_id
-        logger.info(f"🔍 Сообщение в группе: message_thread_id={topic_id}")
-    elif update.callback_query:
-        topic_id = update.callback_query.message.message_thread_id
-        logger.info(f"🔍 Callback в группе: message_thread_id={topic_id}")
-    else:
-        topic_id = None
-    
-    # Проверяем, что сообщение в нужном топике
-    if topic_id == TOPIC_ID:
-        is_topic = True
-        logger.info(f"✅ Сообщение в нашем топике (topic={topic_id})")
-    else:
-        logger.info(f"⏭️ Сообщение не в нашем топике (topic={topic_id}), ожидается {TOPIC_ID}")
-        return
+    if chat_id == GROUP_ID:
+        # Сообщение в группе
+        if update.message:
+            topic_id = update.message.message_thread_id
+            logger.info(f"🔍 Сообщение в группе: message_thread_id={topic_id}")
+        elif update.callback_query:
+            topic_id = update.callback_query.message.message_thread_id
+            logger.info(f"🔍 Callback в группе: message_thread_id={topic_id}")
+        else:
+            topic_id = None
+        
+        # Проверяем, что сообщение в нужном топике
+        if topic_id == TOPIC_ID:
+            is_topic = True
+            logger.info(f"✅ Сообщение в нашем топике (topic={topic_id})")
+        else:
+            logger.info(f"⏭️ Сообщение не в нашем топике (topic={topic_id}), ожидается {TOPIC_ID}")
+            return  # ← этот return внутри функции, всё правильно
     
     # ==================== ТОПИК ====================
     if is_topic:
