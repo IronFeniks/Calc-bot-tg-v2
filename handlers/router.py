@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 topic_lock = UserLock(timeout_seconds=300)
 
 # Словарь для хранения режимов пользователей в личке
-# user_id -> 'calculator' or 'admin'
 user_modes = {}
 
 def get_user_mode(user_id: int) -> str:
@@ -34,7 +33,6 @@ def is_admin(user_id: int) -> bool:
     """Проверяет, является ли пользователь администратором"""
     if user_id == MASTER_ADMIN_ID:
         return True
-    # TODO: проверить в Excel (будет реализовано позже)
     return user_id in ADMIN_IDS
 
 async def router_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, command: str):
@@ -61,7 +59,7 @@ async def router_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, com
             logger.info(f"✅ Сообщение в нашем топике (topic={topic_id})")
         else:
             logger.info(f"⏭️ Сообщение не в нашем топике (topic={topic_id}), ожидается {TOPIC_ID}")
-            return  # ← этот return внутри функции, всё правильно
+            return
     
     # ==================== ТОПИК ====================
     if is_topic:
@@ -79,7 +77,6 @@ async def router_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, com
         return
     
     # ==================== ЛИЧКА ====================
-    # Личная переписка
     user_is_admin = is_admin(user_id)
     
     # Если команда /admin и пользователь админ — переключаем в админку
@@ -91,14 +88,12 @@ async def router_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     # Если команда /start — показываем меню выбора режима (только для админов)
     if command == "start":
         if user_is_admin:
-            # Админ — показываем меню выбора
             await update.message.reply_text(
                 "🏭 ВЫБОР РЕЖИМА\n\n"
                 "Вы вошли как администратор. Выберите режим работы:",
                 reply_markup=mode_selection_keyboard(user_id)
             )
         else:
-            # Обычный пользователь — сразу калькулятор
             set_user_mode(user_id, 'calculator')
             await start_calculator(update, context, is_topic=False, lock=None)
         return
