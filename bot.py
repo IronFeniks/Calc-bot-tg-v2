@@ -22,9 +22,12 @@ def install_requirements():
 
 install_requirements()
 
-# ==================== НАСТРОЙКА ЛОГИРОВАНИЯ ====================
+# ==================== ИМПОРТЫ ====================
 import logging
+from telegram import Update
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
+# ==================== НАСТРОЙКА ЛОГИРОВАНИЯ ====================
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -39,30 +42,37 @@ logging.getLogger('httpx').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 logger.info("🚀 Запуск объединённого бота...")
 
-# ... остальной код бота ...
+# ==================== ИМПОРТЫ МОДУЛЕЙ ПРОЕКТА ====================
+from config import BOT_TOKEN, GROUP_ID, TOPIC_ID
+from price_db import init_prices_db
+from handlers.router import router_handler
+from handlers.calculator import start_calculator, cancel_calculator, help_calculator
+from handlers.admin import start_admin, cancel_admin, help_admin
+from keyboards.admin import mode_selection_keyboard
+
 # ==================== ГЛОБАЛЬНЫЕ ОБРАБОТЧИКИ ====================
 
-async def start_command(update, context):
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /start — маршрутизирует в зависимости от контекста"""
     await router_handler(update, context, command="start")
 
-async def admin_command(update, context):
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /admin — переход в режим администрирования"""
     await router_handler(update, context, command="admin")
 
-async def cancel_command(update, context):
+async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /cancel — отмена текущего действия"""
     await router_handler(update, context, command="cancel")
 
-async def help_command(update, context):
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик /help — справка"""
     await router_handler(update, context, command="help")
 
-async def message_handler(update, context):
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик текстовых сообщений"""
     await router_handler(update, context, command="message")
 
-async def callback_handler(update, context):
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик callback кнопок"""
     await router_handler(update, context, command="callback")
 
@@ -74,7 +84,6 @@ async def post_init(application: Application):
     
     try:
         # Инициализируем SQLite
-        from price_db import init_prices_db
         init_prices_db()
         logger.info("✅ SQLite инициализирован")
         
@@ -95,7 +104,7 @@ async def post_init(application: Application):
         
     except Exception as e:
         logger.exception(f"❌ Критическая ошибка в post_init: {e}")
-        
+
 # ==================== MAIN ====================
 
 def main():
