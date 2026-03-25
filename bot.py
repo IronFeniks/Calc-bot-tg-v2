@@ -43,12 +43,9 @@ logger = logging.getLogger(__name__)
 logger.info("🚀 Запуск объединённого бота...")
 
 # ==================== ИМПОРТЫ МОДУЛЕЙ ПРОЕКТА ====================
-from config import BOT_TOKEN, GROUP_ID, TOPIC_ID
+from config import BOT_TOKEN
 from price_db import init_prices_db
 from handlers.router import router_handler
-from handlers.calculator import start_calculator, cancel_calculator, help_calculator
-from handlers.admin import start_admin, cancel_admin, help_admin
-from keyboards.admin import mode_selection_keyboard
 
 # ==================== ГЛОБАЛЬНЫЕ ОБРАБОТЧИКИ ====================
 
