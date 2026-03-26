@@ -1,5 +1,5 @@
 import logging
-from telegram import Update
+from telegram import Update, CallbackQuery
 from telegram.ext import ContextTypes
 from keyboards.calculator import products_keyboard, multi_select_products_keyboard, back_button, cancel_button
 from utils.formatters import format_category_path
@@ -15,7 +15,6 @@ async def show_products(query, user_id: int, page: int):
     tree = session.get('category_tree', {})
     path = session.get('category_path', [])
     
-    # Получаем изделия на текущем уровне
     items = []
     if path:
         current = tree
@@ -33,7 +32,6 @@ async def show_products(query, user_id: int, page: int):
         )
         return
     
-    # Сохраняем список изделий в сессию
     session['current_products'] = items
     
     total_pages = (len(items) + 9) // 10
@@ -63,34 +61,28 @@ async def show_products(query, user_id: int, page: int):
         )
 
 
-async def select_product_by_number(update, user_id: int, number: int):
+async def select_product_by_number(update_obj, user_id: int, number: int):
     """Выбор изделия по номеру (одиночный режим)"""
     session = get_session(user_id)
     items = session.get('current_products', [])
     
     if number < 1 or number > len(items):
-        await update.message.reply_text(
-            f"❌ Введите число от 1 до {len(items)}",
-            reply_markup=back_button(user_id, "products")
-        )
+        await send_reply(update_obj, f"❌ Введите число от 1 до {len(items)}", back_button(user_id, "products"))
         return
     
     product_info = items[number - 1]
-    await select_product_by_name(update, user_id, product_info['name'])
+    await select_product_by_name(update_obj, user_id, product_info['name'])
 
 
-async def select_product_by_name(update, user_id: int, product_name: str):
+async def select_product_by_name(update_obj, user_id: int, product_name: str):
     """Выбор изделия по названию (одиночный режим)"""
     session = get_session(user_id)
     excel = get_excel_handler()
     
-    # Нормализуем название для поиска
     search_name = product_name.strip()
     
-    # Прямой поиск по названию
     product = excel.get_product_by_name(search_name)
     
-    # Если не нашли, пробуем поиск без учёта регистра
     if not product:
         excel.load_data()
         for _, row in excel.df_nomenclature.iterrows():
@@ -101,10 +93,7 @@ async def select_product_by_name(update, user_id: int, product_name: str):
     
     if not product:
         logger.warning(f"Изделие не найдено: {search_name}")
-        await update.message.reply_text(
-            "❌ Изделие не найдено. Попробуйте выбрать из списка.",
-            reply_markup=back_button(user_id, "products")
-        )
+        await send_reply(update_obj, "❌ Изделие не найдено. Попробуйте выбрать из списка.", back_button(user_id, "products"))
         return
     
     session['selected_product'] = product
@@ -112,12 +101,13 @@ async def select_product_by_name(update, user_id: int, product_name: str):
     
     multiplicity = product.get('Кратность', 1)
     
-    await update.message.reply_text(
+    await send_reply(
+        update_obj,
         f"✅ Выбрано: {product['Наименование']}\n"
         f"📦 Кратность: {multiplicity}\n\n"
         f"📦 Введите количество продукции (шт):\n"
         f"(должно быть кратно {multiplicity})",
-        reply_markup=cancel_button(user_id)
+        cancel_button(user_id)
     )
 
 
@@ -127,7 +117,6 @@ async def show_multi_products(query, user_id: int, page: int):
     tree = session.get('category_tree', {})
     path = session.get('category_path', [])
     
-    # Получаем изделия на текущем уровне
     items = []
     if path:
         current = tree
@@ -176,7 +165,6 @@ async def show_multi_products(query, user_id: int, page: int):
         )
     except Exception as e:
         logger.error(f"Ошибка при показе множественного выбора: {e}")
-        # Пробуем отправить новое сообщение вместо редактирования
         await query.message.reply_text(
             text,
             reply_markup=multi_select_products_keyboard(page_items, user_id, page, total_pages, selected)
@@ -188,7 +176,6 @@ async def toggle_product(query, user_id: int, product_name: str):
     session = get_session(user_id)
     selected = session.get('selected_products', [])
     
-    # Нормализуем название
     product_name = product_name.strip()
     
     if product_name in selected:
@@ -199,8 +186,6 @@ async def toggle_product(query, user_id: int, product_name: str):
         logger.info(f"Добавлен в выбор: {product_name}")
     
     session['selected_products'] = selected
-    
-    # Обновляем текущую страницу
     await show_multi_products(query, user_id, 1)
 
 
@@ -224,3 +209,22 @@ async def confirm_products(query, user_id: int):
         f"Пример: 110",
         reply_markup=cancel_button(user_id)
     )
+
+
+async def send_reply(update_obj, text: str, reply_markup=None):
+    """
+    Универсальная функция отправки ответа
+    Поддерживает как Message, так и CallbackQuery
+    """
+    if isinstance(update_obj, CallbackQuery):
+        # Если это callback, используем message для ответа
+        await update_obj.message.reply_text(text, reply_markup=reply_markup)
+    elif hasattr(update_obj, 'message') and update_obj.message:
+        # Если это Update с сообщением
+        await update_obj.message.reply_text(text, reply_markup=reply_markup)
+    elif hasattr(update_obj, 'reply_text'):
+        # Если это сам объект Message
+        await update_obj.reply_text(text, reply_markup=reply_markup)
+    else:
+        # fallback: логируем ошибку
+        logger.error(f"Не удалось отправить сообщение: неизвестный тип update_obj {type(update_obj)}")
