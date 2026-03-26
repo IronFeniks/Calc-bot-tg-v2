@@ -1,7 +1,7 @@
 import logging
 from telegram import Update, CallbackQuery
 from telegram.ext import ContextTypes
-from keyboards.calculator import products_keyboard, multi_select_products_keyboard, back_button, cancel_button, restore_callback_data, clear_user_mapping
+from keyboards.calculator import products_keyboard, multi_select_products_keyboard, back_button, cancel_button, restore_callback_data
 from utils.formatters import format_category_path
 from excel_handler import get_excel_handler
 from .session import get_session
@@ -79,7 +79,7 @@ async def select_product_by_name(update_obj, user_id: int, product_name_or_hash:
     session = get_session(user_id)
     excel = get_excel_handler()
     
-    # Пытаемся восстановить оригинальное название из хэша
+    # Восстанавливаем оригинальное название из хэша
     original_name = restore_callback_data(user_id, "select_product", product_name_or_hash)
     search_name = original_name.strip()
     
@@ -94,21 +94,28 @@ async def select_product_by_name(update_obj, user_id: int, product_name_or_hash:
                 break
     
     if not product:
-        logger.warning(f"Изделие не найдено: {search_name} (исходный хэш: {product_name_or_hash})")
+        logger.warning(f"Изделие не найдено: {search_name}")
         await send_reply(update_obj, "❌ Изделие не найдено. Попробуйте выбрать из списка.", back_button(user_id, "products"))
         return
     
+    # Сохраняем выбранное изделие
     session['selected_product'] = product
-    session['step'] = 'quantity'
+    
+    # ПРАВИЛЬНАЯ ПОСЛЕДОВАТЕЛЬНОСТЬ: сначала эффективность, потом налог
+    session['step'] = 'efficiency'
     
     multiplicity = product.get('Кратность', 1)
+    
+    logger.info(f"✅ Выбрано изделие: {product['Наименование']}, переход к вводу эффективности")
     
     await send_reply(
         update_obj,
         f"✅ Выбрано: {product['Наименование']}\n"
         f"📦 Кратность: {multiplicity}\n\n"
-        f"📦 Введите количество продукции (шт):\n"
-        f"(должно быть кратно {multiplicity})",
+        f"📊 ПАРАМЕТРЫ РАСЧЁТА (1/2)\n\n"
+        f"Введите эффективность производства (%):\n"
+        f"(влияет на расход материалов)\n\n"
+        f"Пример: 110",
         cancel_button(user_id)
     )
 
@@ -178,7 +185,6 @@ async def toggle_product(query, user_id: int, product_name_or_hash: str):
     session = get_session(user_id)
     selected = session.get('selected_products', [])
     
-    # Восстанавливаем оригинальное название из хэша
     original_name = restore_callback_data(user_id, "toggle_product", product_name_or_hash)
     product_name = original_name.strip()
     
