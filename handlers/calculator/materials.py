@@ -34,8 +34,29 @@ async def calculate_single_materials(update, user_id: int):
         product['Код'], quantity, efficiency, excel, saved_prices
     )
     
+    # Унифицируем структуру для ввода цен
+    unified_items = []
+    for m in materials_list:
+        unified_items.append({
+            'name': m['name'],
+            'qty': m['qty'],
+            'price': m.get('price', 0),
+            'type': 'material',
+            'original': m
+        })
+    for n in nodes_list:
+        unified_items.append({
+            'name': n['name'],
+            'qty': n['needed_qty'],
+            'price': n.get('price', 0),
+            'type': 'node',
+            'original': n
+        })
+    unified_items.sort(key=lambda x: x['name'])
+    
     session['materials_list'] = materials_list
     session['nodes_list'] = nodes_list
+    session['unified_price_items'] = unified_items
     session['single_product_detail'] = {
         'product': product,
         'quantity': quantity,
@@ -108,8 +129,29 @@ async def calculate_multi_materials(update, user_id: int):
     for i, node in enumerate(nodes_list, 1):
         node['number'] = i
     
+    # Унифицируем структуру для ввода цен
+    unified_items = []
+    for m in merged_materials:
+        unified_items.append({
+            'name': m['name'],
+            'qty': m['qty'],
+            'price': m.get('price', 0),
+            'type': 'material',
+            'original': m
+        })
+    for n in nodes_list:
+        unified_items.append({
+            'name': n['name'],
+            'qty': n['needed_qty'],
+            'price': n.get('price', 0),
+            'type': 'node',
+            'original': n
+        })
+    unified_items.sort(key=lambda x: x['name'])
+    
     session['materials_list'] = merged_materials
     session['nodes_list'] = nodes_list
+    session['unified_price_items'] = unified_items
     session['products_with_details'] = products_with_details
     session['step'] = 'materials'
     session['materials_page'] = 0
@@ -174,7 +216,8 @@ async def _calculate_materials(product_code: str, quantity: int, efficiency: flo
                     'multiplicity': node_multiplicity,
                     'leftover': node_leftover,
                     'price_per_drawing': child_price,
-                    'total_cost': node_drawings * child_price
+                    'total_cost': node_drawings * child_price,
+                    'price': child_price
                 })
                 
                 if child_name not in materials_dict:
@@ -249,7 +292,6 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False)
     missing = [i for i in all_items if i.get('price', 0) == 0]
     session['missing_materials'] = missing
     
-    # Определяем, с чем работаем: с Update или с CallbackQuery
     if isinstance(update_obj, CallbackQuery):
         await update_obj.edit_message_text(
             text,
@@ -265,13 +307,34 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False)
 async def start_price_input(query, user_id: int):
     """Начало пошагового ввода цен (вызывается из callback)"""
     session = get_session(user_id)
-    materials = session.get('materials_list', [])
-    nodes = session.get('nodes_list', [])
     
-    all_items = materials + nodes
-    all_items.sort(key=lambda x: x.get('number', 0))
+    # Используем унифицированный список для ввода цен
+    unified_items = session.get('unified_price_items', [])
+    if not unified_items:
+        # Если нет, создаём из materials и nodes
+        materials = session.get('materials_list', [])
+        nodes = session.get('nodes_list', [])
+        unified_items = []
+        for m in materials:
+            unified_items.append({
+                'name': m['name'],
+                'qty': m['qty'],
+                'price': m.get('price', 0),
+                'type': 'material',
+                'original': m
+            })
+        for n in nodes:
+            unified_items.append({
+                'name': n['name'],
+                'qty': n.get('needed_qty', n.get('qty', 0)),
+                'price': n.get('price', 0),
+                'type': 'node',
+                'original': n
+            })
+        unified_items.sort(key=lambda x: x['name'])
+        session['unified_price_items'] = unified_items
     
-    session['price_input_items'] = all_items
+    session['price_input_items'] = unified_items
     session['current_material'] = 0
     session['step'] = 'price_input_waiting'
     
@@ -325,6 +388,7 @@ async def process_price_input_value(update: Update, user_id: int, text: str):
     if current < len(items):
         item = items[current]
         item['price'] = price
+        item['original']['price'] = price
         
         save_material_price(item['name'], price)
         
@@ -344,15 +408,13 @@ async def process_price_input_value(update: Update, user_id: int, text: str):
 async def auto_prices(query, user_id: int):
     """Автоматическая подстановка цен (вызывается из callback)"""
     session = get_session(user_id)
-    materials = session.get('materials_list', [])
-    nodes = session.get('nodes_list', [])
-    all_items = materials + nodes
+    unified_items = session.get('unified_price_items', [])
     
-    missing = [i for i in all_items if i.get('price', 0) == 0]
+    missing = [i for i in unified_items if i.get('price', 0) == 0]
     
     if missing:
         text = "🤖 АВТОМАТИЧЕСКАЯ ПОДСТАНОВКА ЦЕН\n\n"
-        text += f"✅ Цены подставлены для: {len(all_items) - len(missing)} элементов\n"
+        text += f"✅ Цены подставлены для: {len(unified_items) - len(missing)} элементов\n"
         text += f"⚠️ Нет цен для: {len(missing)} элементов\n\n"
         text += "Элементы без цен:\n"
         for m in missing[:10]:
@@ -427,6 +489,7 @@ async def process_missing_price_value(update: Update, user_id: int, text: str):
     if current < len(items):
         item = items[current]
         item['price'] = price
+        item['original']['price'] = price
         
         save_material_price(item['name'], price)
         
