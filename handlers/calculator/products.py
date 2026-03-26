@@ -63,12 +63,28 @@ async def show_products(query, user_id: int, page: int):
         )
 
 
+async def select_product_by_number(update, user_id: int, number: int):
+    """Выбор изделия по номеру (одиночный режим)"""
+    session = get_session(user_id)
+    items = session.get('current_products', [])
+    
+    if number < 1 or number > len(items):
+        await update.message.reply_text(
+            f"❌ Введите число от 1 до {len(items)}",
+            reply_markup=back_button(user_id, "products")
+        )
+        return
+    
+    product_info = items[number - 1]
+    await select_product_by_name(update, user_id, product_info['name'])
+
+
 async def select_product_by_name(update, user_id: int, product_name: str):
     """Выбор изделия по названию (одиночный режим)"""
     session = get_session(user_id)
     excel = get_excel_handler()
     
-    # Нормализуем название для поиска (убираем лишние пробелы, приводим к нижнему регистру)
+    # Нормализуем название для поиска
     search_name = product_name.strip()
     
     # Прямой поиск по названию
@@ -76,10 +92,10 @@ async def select_product_by_name(update, user_id: int, product_name: str):
     
     # Если не нашли, пробуем поиск без учёта регистра
     if not product:
-        excel.load_data()  # Перезагружаем данные на всякий случай
-        # Ищем вручную
+        excel.load_data()
         for _, row in excel.df_nomenclature.iterrows():
-            if str(row['Наименование']).strip().lower() == search_name.lower():
+            row_name = str(row['Наименование']).strip().lower()
+            if row_name == search_name.lower():
                 product = row.to_dict()
                 break
     
