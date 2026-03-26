@@ -1,7 +1,7 @@
 import logging
 from telegram import Update, CallbackQuery
 from telegram.ext import ContextTypes
-from keyboards.calculator import products_keyboard, multi_select_products_keyboard, back_button, cancel_button
+from keyboards.calculator import products_keyboard, multi_select_products_keyboard, back_button, cancel_button, restore_callback_data, clear_user_mapping
 from utils.formatters import format_category_path
 from excel_handler import get_excel_handler
 from .session import get_session
@@ -74,12 +74,14 @@ async def select_product_by_number(update_obj, user_id: int, number: int):
     await select_product_by_name(update_obj, user_id, product_info['name'])
 
 
-async def select_product_by_name(update_obj, user_id: int, product_name: str):
-    """Выбор изделия по названию (одиночный режим)"""
+async def select_product_by_name(update_obj, user_id: int, product_name_or_hash: str):
+    """Выбор изделия по названию или хэшу (одиночный режим)"""
     session = get_session(user_id)
     excel = get_excel_handler()
     
-    search_name = product_name.strip()
+    # Пытаемся восстановить оригинальное название из хэша
+    original_name = restore_callback_data(user_id, "select_product", product_name_or_hash)
+    search_name = original_name.strip()
     
     product = excel.get_product_by_name(search_name)
     
@@ -92,7 +94,7 @@ async def select_product_by_name(update_obj, user_id: int, product_name: str):
                 break
     
     if not product:
-        logger.warning(f"Изделие не найдено: {search_name}")
+        logger.warning(f"Изделие не найдено: {search_name} (исходный хэш: {product_name_or_hash})")
         await send_reply(update_obj, "❌ Изделие не найдено. Попробуйте выбрать из списка.", back_button(user_id, "products"))
         return
     
@@ -171,12 +173,14 @@ async def show_multi_products(query, user_id: int, page: int):
         )
 
 
-async def toggle_product(query, user_id: int, product_name: str):
+async def toggle_product(query, user_id: int, product_name_or_hash: str):
     """Переключение выбора изделия (множественный режим)"""
     session = get_session(user_id)
     selected = session.get('selected_products', [])
     
-    product_name = product_name.strip()
+    # Восстанавливаем оригинальное название из хэша
+    original_name = restore_callback_data(user_id, "toggle_product", product_name_or_hash)
+    product_name = original_name.strip()
     
     if product_name in selected:
         selected.remove(product_name)
@@ -217,14 +221,10 @@ async def send_reply(update_obj, text: str, reply_markup=None):
     Поддерживает как Message, так и CallbackQuery
     """
     if isinstance(update_obj, CallbackQuery):
-        # Если это callback, используем message для ответа
         await update_obj.message.reply_text(text, reply_markup=reply_markup)
     elif hasattr(update_obj, 'message') and update_obj.message:
-        # Если это Update с сообщением
         await update_obj.message.reply_text(text, reply_markup=reply_markup)
     elif hasattr(update_obj, 'reply_text'):
-        # Если это сам объект Message
         await update_obj.reply_text(text, reply_markup=reply_markup)
     else:
-        # fallback: логируем ошибку
         logger.error(f"Не удалось отправить сообщение: неизвестный тип update_obj {type(update_obj)}")
