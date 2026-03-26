@@ -1,7 +1,7 @@
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
-from keyboards.calculator import mode_selection_keyboard, cancel_button, back_button
+from keyboards.calculator import mode_selection_keyboard, cancel_button, back_button, categories_keyboard
 from .instructions import INSTRUCTION_TOPIC, INSTRUCTION_PRIVATE, INSTRUCTION_ADMIN
 from .session import get_session, clear_session
 from .categories import show_categories, select_category, back_to_categories
@@ -21,7 +21,7 @@ from .results import (
     back_to_total_summary, back_to_result, same_category, show_explanation
 )
 from excel_handler import get_excel_handler
-from handlers.router import is_admin
+from handlers.auth import is_admin
 
 logger = logging.getLogger(__name__)
 
