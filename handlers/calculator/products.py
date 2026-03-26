@@ -1,7 +1,7 @@
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
-from keyboards.calculator import products_keyboard, multi_select_products_keyboard, back_button
+from keyboards.calculator import products_keyboard, multi_select_products_keyboard, back_button, cancel_button
 from utils.formatters import format_category_path
 from excel_handler import get_excel_handler
 from .session import get_session
@@ -50,20 +50,45 @@ async def show_products(query, user_id: int, page: int):
         text += f"{i}. {item['name']}\n"
     text += "\n👉 Введите номер изделия для выбора"
     
-    await query.edit_message_text(
-        text,
-        reply_markup=products_keyboard(page_items, user_id, page, total_pages)
-    )
+    try:
+        await query.edit_message_text(
+            text,
+            reply_markup=products_keyboard(page_items, user_id, page, total_pages)
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при показе изделий: {e}")
+        await query.edit_message_text(
+            "❌ Ошибка при загрузке изделий",
+            reply_markup=back_button(user_id, "categories")
+        )
 
 
-async def select_product_by_name(query, user_id: int, product_name: str):
+async def select_product_by_name(update, user_id: int, product_name: str):
     """Выбор изделия по названию (одиночный режим)"""
     session = get_session(user_id)
     excel = get_excel_handler()
     
-    product = excel.get_product_by_name(product_name)
+    # Нормализуем название для поиска (убираем лишние пробелы, приводим к нижнему регистру)
+    search_name = product_name.strip()
+    
+    # Прямой поиск по названию
+    product = excel.get_product_by_name(search_name)
+    
+    # Если не нашли, пробуем поиск без учёта регистра
     if not product:
-        await query.edit_message_text("❌ Изделие не найдено")
+        excel.load_data()  # Перезагружаем данные на всякий случай
+        # Ищем вручную
+        for _, row in excel.df_nomenclature.iterrows():
+            if str(row['Наименование']).strip().lower() == search_name.lower():
+                product = row.to_dict()
+                break
+    
+    if not product:
+        logger.warning(f"Изделие не найдено: {search_name}")
+        await update.message.reply_text(
+            "❌ Изделие не найдено. Попробуйте выбрать из списка.",
+            reply_markup=back_button(user_id, "products")
+        )
         return
     
     session['selected_product'] = product
@@ -71,12 +96,12 @@ async def select_product_by_name(query, user_id: int, product_name: str):
     
     multiplicity = product.get('Кратность', 1)
     
-    await query.edit_message_text(
+    await update.message.reply_text(
         f"✅ Выбрано: {product['Наименование']}\n"
         f"📦 Кратность: {multiplicity}\n\n"
         f"📦 Введите количество продукции (шт):\n"
         f"(должно быть кратно {multiplicity})",
-        reply_markup=back_button(user_id, "products")
+        reply_markup=cancel_button(user_id)
     )
 
 
@@ -98,10 +123,17 @@ async def show_multi_products(query, user_id: int, page: int):
                 current = current[cat]['_subcategories']
     
     if not items:
-        await query.edit_message_text(
-            "❌ В этой категории нет изделий",
-            reply_markup=back_button(user_id, "categories")
-        )
+        try:
+            await query.edit_message_text(
+                "❌ В этой категории нет изделий",
+                reply_markup=back_button(user_id, "categories")
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при показе сообщения: {e}")
+            await query.message.reply_text(
+                "❌ В этой категории нет изделий",
+                reply_markup=back_button(user_id, "categories")
+            )
         return
     
     total_pages = (len(items) + 9) // 10
@@ -121,10 +153,18 @@ async def show_multi_products(query, user_id: int, page: int):
         checkbox = "☑️" if item['name'] in selected else "☐"
         text += f"{checkbox} {i}. {item['name']}\n"
     
-    await query.edit_message_text(
-        text,
-        reply_markup=multi_select_products_keyboard(page_items, user_id, page, total_pages, selected)
-    )
+    try:
+        await query.edit_message_text(
+            text,
+            reply_markup=multi_select_products_keyboard(page_items, user_id, page, total_pages, selected)
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при показе множественного выбора: {e}")
+        # Пробуем отправить новое сообщение вместо редактирования
+        await query.message.reply_text(
+            text,
+            reply_markup=multi_select_products_keyboard(page_items, user_id, page, total_pages, selected)
+        )
 
 
 async def toggle_product(query, user_id: int, product_name: str):
@@ -132,10 +172,15 @@ async def toggle_product(query, user_id: int, product_name: str):
     session = get_session(user_id)
     selected = session.get('selected_products', [])
     
+    # Нормализуем название
+    product_name = product_name.strip()
+    
     if product_name in selected:
         selected.remove(product_name)
+        logger.info(f"Удалён из выбора: {product_name}")
     else:
         selected.append(product_name)
+        logger.info(f"Добавлен в выбор: {product_name}")
     
     session['selected_products'] = selected
     
@@ -152,6 +197,7 @@ async def confirm_products(query, user_id: int):
         await query.answer("❌ Выберите хотя бы одно изделие", show_alert=True)
         return
     
+    logger.info(f"Подтверждён выбор: {selected}")
     session['step'] = 'multi_efficiency'
     
     await query.edit_message_text(
@@ -160,5 +206,5 @@ async def confirm_products(query, user_id: int):
         f"Введите эффективность производства (%):\n"
         f"(общая для всех изделий)\n\n"
         f"Пример: 110",
-        reply_markup=back_button(user_id, "categories")
+        reply_markup=cancel_button(user_id)
     )
