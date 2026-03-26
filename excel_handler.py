@@ -36,24 +36,19 @@ class ExcelHandler:
             
             excel_file = pd.ExcelFile(self.file_path)
             
-            # Загружаем Номенклатуру
             if 'Номенклатура' in excel_file.sheet_names:
                 self.df_nomenclature = pd.read_excel(excel_file, sheet_name='Номенклатура').fillna('')
                 logger.info(f"✅ Загружено {len(self.df_nomenclature)} записей номенклатуры")
             else:
                 return False, "❌ В файле нет листа 'Номенклатура'"
             
-            # Загружаем Спецификации
             if 'Спецификации' in excel_file.sheet_names:
                 self.df_specifications = pd.read_excel(excel_file, sheet_name='Спецификации').fillna('')
                 logger.info(f"✅ Загружено {len(self.df_specifications)} спецификаций")
             else:
                 return False, "❌ В файле нет листа 'Спецификации'"
             
-            # Загружаем или создаём Счётчики
             self._load_or_create_counters(excel_file)
-            
-            # Загружаем или создаём Администраторы
             self._load_or_create_admins(excel_file)
             
             return True, "✅ Данные загружены"
@@ -65,7 +60,6 @@ class ExcelHandler:
     def save_data(self) -> Tuple[bool, str]:
         """Сохраняет данные в Excel файл"""
         try:
-            # Создаём временный файл для безопасного сохранения
             temp_file = self.file_path + ".tmp"
             
             with pd.ExcelWriter(temp_file, engine='openpyxl') as writer:
@@ -78,7 +72,6 @@ class ExcelHandler:
                 if self.df_admins is not None:
                     self.df_admins.to_excel(writer, sheet_name='Администраторы', index=False)
             
-            # Заменяем оригинал
             if os.path.exists(temp_file):
                 if os.path.exists(self.file_path):
                     os.remove(self.file_path)
@@ -100,7 +93,6 @@ class ExcelHandler:
                 self.df_counters = pd.read_excel(excel_file, sheet_name='Счётчики').fillna('')
                 logger.info("✅ Лист 'Счётчики' загружен")
             else:
-                # Создаём новый лист, сканируем существующие данные
                 counters = self._scan_max_numbers()
                 self.df_counters = pd.DataFrame([
                     {'Тип': 'изделие', 'Максимальный номер': counters['изделие']},
@@ -202,7 +194,6 @@ class ExcelHandler:
                 self.df_admins = pd.read_excel(excel_file, sheet_name='Администраторы').fillna('')
                 logger.info("✅ Лист 'Администраторы' загружен")
             else:
-                # Создаём новый лист с главным админом
                 self.df_admins = pd.DataFrame([{
                     'user_id': MASTER_ADMIN_ID,
                     'username': '',
@@ -239,52 +230,6 @@ class ExcelHandler:
             return len(admins) > 0
         return False
     
-    def add_admin(self, user_id: int, username: str = '', first_name: str = '', added_by: int = 0) -> Tuple[bool, str]:
-        """Добавляет нового администратора"""
-        if self.is_admin(user_id):
-            return False, "❌ Пользователь уже является администратором"
-        
-        new_row = pd.DataFrame([{
-            'user_id': user_id,
-            'username': username,
-            'first_name': first_name,
-            'added_by': added_by,
-            'added_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'is_active': 1
-        }])
-        
-        self.df_admins = pd.concat([self.df_admins, new_row], ignore_index=True)
-        return True, f"✅ Администратор {first_name or username or user_id} добавлен"
-    
-    def remove_admin(self, user_id: int) -> Tuple[bool, str]:
-        """Удаляет администратора (мягкое удаление)"""
-        from config import MASTER_ADMIN_ID
-        
-        if user_id == MASTER_ADMIN_ID:
-            return False, "❌ Нельзя удалить главного администратора"
-        
-        mask = self.df_admins['user_id'] == user_id
-        if mask.any():
-            self.df_admins.loc[mask, 'is_active'] = 0
-            return True, "✅ Администратор удалён"
-        return False, "❌ Пользователь не найден в списке администраторов"
-    
-    def get_admins_list(self) -> List[Dict]:
-        """Возвращает список активных администраторов"""
-        if self.df_admins is None:
-            return []
-        
-        admins = self.df_admins[self.df_admins['is_active'] == 1]
-        result = []
-        for _, row in admins.iterrows():
-            result.append({
-                'user_id': int(row['user_id']),
-                'username': str(row['username']),
-                'first_name': str(row['first_name']),
-                'added_at': str(row['added_at'])
-            })
-        return result
-    
     # ==================== НОМЕНКЛАТУРА ====================
     
     def get_product_by_code(self, code: str) -> Optional[Dict]:
@@ -297,12 +242,25 @@ class ExcelHandler:
         return None
     
     def get_product_by_name(self, name: str) -> Optional[Dict]:
-        """Возвращает запись по названию (точное совпадение)"""
+        """
+        Возвращает запись по названию (с нормализацией)
+        
+        Args:
+            name: название изделия/узла/материала
+        
+        Returns:
+            словарь с данными или None
+        """
         if self.df_nomenclature is None:
             return None
-        mask = self.df_nomenclature['Наименование'] == name
-        if mask.any():
-            return self.df_nomenclature[mask].iloc[0].to_dict()
+        
+        search_name = name.strip().lower()
+        
+        for _, row in self.df_nomenclature.iterrows():
+            row_name = str(row['Наименование']).strip().lower()
+            if row_name == search_name:
+                return row.to_dict()
+        
         return None
     
     def get_products_by_type(self, type_name: str, page: int = 0, per_page: int = 10) -> Tuple[List[Dict], int]:
@@ -330,100 +288,6 @@ class ExcelHandler:
         
         return items, total
     
-    def add_product(self, name: str, type_name: str, category: str = '', 
-                   price: str = '0 ISK', multiplicity: int = 1) -> Tuple[bool, str, str]:
-        """Добавляет новое изделие/узел с автоматическим кодом"""
-        try:
-            if type_name.lower() == 'изделие':
-                code = self.get_next_product_code()
-            elif type_name.lower() == 'узел':
-                code = self.get_next_node_code()
-            else:
-                return False, f"❌ Неизвестный тип: {type_name}", ""
-            
-            new_row = pd.DataFrame([{
-                'Код': code,
-                'Наименование': name,
-                'Тип': type_name,
-                'Цена производства': price,
-                'Категории': category,
-                'Кратность': multiplicity
-            }])
-            
-            self.df_nomenclature = pd.concat([self.df_nomenclature, new_row], ignore_index=True)
-            
-            return True, f"✅ {type_name} добавлено с кодом {code}", code
-            
-        except Exception as e:
-            logger.error(f"Ошибка добавления {type_name}: {e}")
-            return False, f"❌ Ошибка: {e}", ""
-    
-    def add_material(self, name: str, category: str = '') -> Tuple[bool, str, str]:
-        """Добавляет новый материал с автоматическим кодом"""
-        try:
-            code = self.get_next_material_code()
-            
-            new_row = pd.DataFrame([{
-                'Код': code,
-                'Наименование': name,
-                'Тип': 'материал',
-                'Цена производства': '',
-                'Категории': category,
-                'Кратность': ''
-            }])
-            
-            self.df_nomenclature = pd.concat([self.df_nomenclature, new_row], ignore_index=True)
-            
-            return True, f"✅ Материал добавлен с кодом {code}", code
-            
-        except Exception as e:
-            logger.error(f"Ошибка добавления материала: {e}")
-            return False, f"❌ Ошибка: {e}", ""
-    
-    def update_product_field(self, code: str, field: str, value) -> Tuple[bool, str]:
-        """Обновляет конкретное поле изделия/материала"""
-        try:
-            mask = self.df_nomenclature['Код'] == code
-            if not mask.any():
-                return False, f"❌ Запись с кодом {code} не найдена"
-            
-            self.df_nomenclature.loc[mask, field] = value
-            return True, f"✅ Поле '{field}' обновлено"
-            
-        except Exception as e:
-            logger.error(f"Ошибка обновления: {e}")
-            return False, f"❌ Ошибка: {e}"
-    
-    def delete_product(self, code: str) -> Tuple[bool, str]:
-        """Удаляет продукт и все связанные спецификации"""
-        try:
-            product = self.get_product_by_code(code)
-            if not product:
-                return False, f"❌ Запись с кодом {code} не найдена"
-            
-            product_name = product['Наименование']
-            product_type = product['Тип']
-            
-            # Удаляем из номенклатуры
-            self.df_nomenclature = self.df_nomenclature[self.df_nomenclature['Код'] != code]
-            
-            # Удаляем все спецификации, где этот код является родителем или потомком
-            before_count = len(self.df_specifications)
-            self.df_specifications = self.df_specifications[
-                (self.df_specifications['Родитель'] != code) & 
-                (self.df_specifications['Потомок'] != code)
-            ]
-            after_count = len(self.df_specifications)
-            deleted_specs = before_count - after_count
-            
-            return True, f"✅ {product_type} '{product_name}' удалён\nУдалено связанных спецификаций: {deleted_specs}"
-            
-        except Exception as e:
-            logger.error(f"Ошибка удаления: {e}")
-            return False, f"❌ Ошибка: {e}"
-    
-    # ==================== СПЕЦИФИКАЦИИ ====================
-    
     def get_specifications(self, parent_code: str) -> List[Dict]:
         """Возвращает спецификации для родителя"""
         if self.df_specifications is None:
@@ -438,107 +302,6 @@ class ExcelHandler:
                 'quantity': float(row['Количество']) if row['Количество'] else 0
             })
         return result
-    
-    def link_node_to_product(self, parent_code: str, node_code: str, quantity: int) -> Tuple[bool, str]:
-        """Привязывает узел к изделию"""
-        try:
-            existing = self.df_specifications[
-                (self.df_specifications['Родитель'] == parent_code) & 
-                (self.df_specifications['Потомок'] == node_code)
-            ]
-            
-            if not existing.empty:
-                return False, "❌ Такая связь уже существует"
-            
-            new_row = pd.DataFrame([{
-                'Родитель': parent_code,
-                'Потомок': node_code,
-                'Количество': quantity
-            }])
-            
-            self.df_specifications = pd.concat([self.df_specifications, new_row], ignore_index=True)
-            
-            return True, "✅ Узел привязан"
-            
-        except Exception as e:
-            logger.error(f"Ошибка привязки узла: {e}")
-            return False, f"❌ Ошибка: {e}"
-    
-    def link_material_to_product(self, parent_code: str, material_code: str, quantity: int) -> Tuple[bool, str]:
-        """Привязывает материал к изделию/узлу"""
-        try:
-            existing = self.df_specifications[
-                (self.df_specifications['Родитель'] == parent_code) & 
-                (self.df_specifications['Потомок'] == material_code)
-            ]
-            
-            if not existing.empty:
-                return False, "❌ Такая связь уже существует"
-            
-            new_row = pd.DataFrame([{
-                'Родитель': parent_code,
-                'Потомок': material_code,
-                'Количество': quantity
-            }])
-            
-            self.df_specifications = pd.concat([self.df_specifications, new_row], ignore_index=True)
-            
-            return True, "✅ Материал привязан"
-            
-        except Exception as e:
-            logger.error(f"Ошибка привязки материала: {e}")
-            return False, f"❌ Ошибка: {e}"
-    
-    def remove_link(self, parent_code: str, child_code: str) -> Tuple[bool, str]:
-        """Удаляет связь между родителем и потомком"""
-        try:
-            before = len(self.df_specifications)
-            self.df_specifications = self.df_specifications[
-                ~((self.df_specifications['Родитель'] == parent_code) & 
-                  (self.df_specifications['Потомок'] == child_code))
-            ]
-            after = len(self.df_specifications)
-            
-            if before == after:
-                return False, "❌ Связь не найдена"
-            
-            return True, "✅ Связь удалена"
-            
-        except Exception as e:
-            logger.error(f"Ошибка удаления связи: {e}")
-            return False, f"❌ Ошибка: {e}"
-    
-    def update_link_quantity(self, parent_code: str, child_code: str, quantity: int) -> Tuple[bool, str]:
-        """Обновляет количество в связи"""
-        try:
-            mask = (self.df_specifications['Родитель'] == parent_code) & (self.df_specifications['Потомок'] == child_code)
-            if not mask.any():
-                return False, "❌ Связь не найдена"
-            
-            self.df_specifications.loc[mask, 'Количество'] = quantity
-            return True, "✅ Количество обновлено"
-            
-        except Exception as e:
-            logger.error(f"Ошибка обновления количества: {e}")
-            return False, f"❌ Ошибка: {e}"
-    
-    # ==================== КАТЕГОРИИ ====================
-    
-    def get_unique_categories(self) -> List[str]:
-        """Возвращает список уникальных категорий"""
-        categories = set()
-        
-        if self.df_nomenclature is None:
-            return []
-        
-        for cat in self.df_nomenclature['Категории']:
-            if cat and str(cat).strip():
-                parts = str(cat).split(' > ')
-                for part in parts:
-                    if part.strip():
-                        categories.add(part.strip())
-        
-        return sorted(list(categories))
     
     def get_category_tree(self) -> dict:
         """Строит дерево категорий из номенклатуры"""
@@ -579,26 +342,3 @@ class ExcelHandler:
                 current = current[cat]['_subcategories']
         
         return tree
-    
-    def get_items_at_level(self, tree: dict, path: list) -> list:
-        """Возвращает изделия на указанном уровне"""
-        if not path:
-            return []
-        
-        current = tree
-        for cat in path:
-            if cat in current:
-                current = current[cat]['_subcategories']
-            else:
-                return []
-        
-        # Возвращаем изделия из последней категории
-        last_cat = path[-1]
-        temp = tree
-        for cat in path:
-            if cat in temp:
-                if cat == last_cat:
-                    return temp[cat].get('_items', [])
-                temp = temp[cat]['_subcategories']
-        
-        return []
