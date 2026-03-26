@@ -1,4 +1,5 @@
 import logging
+from keyboards.calculator import clear_user_mapping
 
 logger = logging.getLogger(__name__)
 
@@ -11,19 +12,19 @@ def get_session(user_id: int) -> dict:
     if user_id not in sessions:
         sessions[user_id] = {
             'step': None,
-            'mode': None,              # 'single' или 'multi'
+            'mode': None,
             'category_path': [],
             'category_tree': None,
-            'current_products': [],    # список изделий на текущей странице
-            'selected_products': [],   # выбранные названия (для multi)
+            'current_products': [],
+            'selected_products': [],
             'efficiency': None,
             'tax': None,
-            'selected_product': None,  # для single
+            'selected_product': None,
             'qty': None,
             'market_price': None,
             'drawing_price': None,
-            'multi_products': [],      # полные данные изделий для multi
-            'multi_products_data': [], # собранные данные после ввода параметров
+            'multi_products': [],
+            'multi_products_data': [],
             'current_product_index': 0,
             'materials_list': [],
             'nodes_list': [],
@@ -45,6 +46,8 @@ def clear_session(user_id: int):
     """Очистить сессию пользователя"""
     if user_id in sessions:
         del sessions[user_id]
+        # Очищаем маппинг хэшей для пользователя
+        clear_user_mapping(user_id)
         logger.info(f"🗑️ Сессия пользователя {user_id} очищена")
 
 
