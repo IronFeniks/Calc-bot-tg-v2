@@ -23,6 +23,8 @@ async def process_efficiency(update: Update, context: ContextTypes.DEFAULT_TYPE,
     session['efficiency'] = efficiency
     session['step'] = 'tax'
     
+    logger.info(f"✅ Эффективность сохранена: {efficiency} для пользователя {user_id}")
+    
     await update.message.reply_text(
         f"📊 ПАРАМЕТРЫ РАСЧЁТА (2/2)\n\n"
         f"Введите ставку налога (%):\n"
@@ -49,6 +51,8 @@ async def process_tax(update: Update, context: ContextTypes.DEFAULT_TYPE, user_i
     product = session.get('selected_product', {})
     multiplicity = product.get('Кратность', 1)
     
+    logger.info(f"✅ Налог сохранён: {tax} для пользователя {user_id}")
+    
     await update.message.reply_text(
         f"📦 КОЛИЧЕСТВО\n\n"
         f"Изделие: {product.get('Наименование', '')}\n"
@@ -72,6 +76,8 @@ async def process_multi_efficiency(update: Update, context: ContextTypes.DEFAULT
     session = get_session(user_id)
     session['efficiency'] = efficiency
     session['step'] = 'multi_tax'
+    
+    logger.info(f"✅ Эффективность сохранена для множественного режима: {efficiency} для пользователя {user_id}")
     
     await update.message.reply_text(
         f"📊 ПАРАМЕТРЫ РАСЧЁТА (2/2)\n\n"
@@ -123,6 +129,8 @@ async def process_multi_tax(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     session['current_product_index'] = 0
     session['multi_products_data'] = []
     session['step'] = 'multi_quantity'
+    
+    logger.info(f"✅ Налог сохранён для множественного режима: {tax} для пользователя {user_id}")
     
     await process_next_multi_product(update, user_id)
 
