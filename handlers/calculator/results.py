@@ -1,8 +1,8 @@
 import logging
 import math
-from telegram import Update
+from telegram import Update, CallbackQuery
 from telegram.ext import ContextTypes
-from keyboards.calculator import result_keyboard, explanation_keyboard
+from keyboards.calculator import result_keyboard, explanation_keyboard, cancel_button
 from utils.formatters import (
     format_number, format_price, format_material_result_line,
     format_node_result_line, format_leftover_line, format_total_result, format_explanation
@@ -13,19 +13,31 @@ from .session import get_session, reset_session_for_new_calculation
 logger = logging.getLogger(__name__)
 
 
-async def calculate_final_result(query, user_id: int):
+async def calculate_final_result(update_obj, user_id: int):
     """Финальный расчёт и вывод результатов"""
     session = get_session(user_id)
     mode = session.get('mode')
     tax_rate = session.get('tax', 0)
     
     if mode == 'single':
-        await _calculate_single_result(query, user_id, tax_rate)
+        await _calculate_single_result(update_obj, user_id, tax_rate)
     else:
-        await _calculate_multi_result(query, user_id, tax_rate)
+        await _calculate_multi_result(update_obj, user_id, tax_rate)
 
 
-async def _calculate_single_result(query, user_id: int, tax_rate: float):
+async def _send_result_message(update_obj, text: str, reply_markup):
+    """Универсальная функция отправки результата"""
+    if isinstance(update_obj, CallbackQuery):
+        await update_obj.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+    elif hasattr(update_obj, 'message') and hasattr(update_obj.message, 'reply_text'):
+        await update_obj.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+    elif hasattr(update_obj, 'reply_text'):
+        await update_obj.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+    else:
+        logger.error(f"Не удалось отправить результат: неизвестный тип {type(update_obj)}")
+
+
+async def _calculate_single_result(update_obj, user_id: int, tax_rate: float):
     """Расчёт и вывод результата для одиночного режима"""
     session = get_session(user_id)
     product = session.get('selected_product', {})
@@ -111,14 +123,10 @@ async def _calculate_single_result(query, user_id: int, tax_rate: float):
     session['last_result_text'] = text
     session['last_result_keyboard'] = result_keyboard(user_id, is_multi=False)
     
-    await query.edit_message_text(
-        text,
-        reply_markup=result_keyboard(user_id, is_multi=False),
-        parse_mode='Markdown'
-    )
+    await _send_result_message(update_obj, text, result_keyboard(user_id, is_multi=False))
 
 
-async def _calculate_multi_result(query, user_id: int, tax_rate: float):
+async def _calculate_multi_result(update_obj, user_id: int, tax_rate: float):
     """Расчёт и вывод результата для множественного режима"""
     session = get_session(user_id)
     products_data = session.get('products_with_details', [])
@@ -183,10 +191,10 @@ async def _calculate_multi_result(query, user_id: int, tax_rate: float):
     session['products_with_details'] = products_data
     session['result_page'] = 0
     
-    await _show_total_summary(query, user_id, tax_rate)
+    await _show_total_summary(update_obj, user_id, tax_rate)
 
 
-async def _show_total_summary(query, user_id: int, tax_rate: float = None):
+async def _show_total_summary(update_obj, user_id: int, tax_rate: float = None):
     """Показывает общую сводку для множественного режима"""
     session = get_session(user_id)
     result = session.get('multi_result', {})
@@ -237,14 +245,10 @@ async def _show_total_summary(query, user_id: int, tax_rate: float = None):
     session['last_result_text'] = text
     session['last_result_keyboard'] = result_keyboard(user_id, is_multi=True, current_index=-1, total_count=len(products_data))
     
-    await query.edit_message_text(
-        text,
-        reply_markup=result_keyboard(user_id, is_multi=True, current_index=-1, total_count=len(products_data)),
-        parse_mode='Markdown'
-    )
+    await _send_result_message(update_obj, text, result_keyboard(user_id, is_multi=True, current_index=-1, total_count=len(products_data)))
 
 
-async def show_product_detail(query, user_id: int, index: int):
+async def show_product_detail(update_obj, user_id: int, index: int):
     """Показывает детали по конкретному изделию (множественный режим)"""
     session = get_session(user_id)
     products_data = session.get('products_with_details', [])
@@ -319,14 +323,10 @@ async def show_product_detail(query, user_id: int, index: int):
     session['last_result_text'] = text
     session['last_result_keyboard'] = result_keyboard(user_id, is_multi=True, current_index=index, total_count=len(products_data))
     
-    await query.edit_message_text(
-        text,
-        reply_markup=result_keyboard(user_id, is_multi=True, current_index=index, total_count=len(products_data)),
-        parse_mode='Markdown'
-    )
+    await _send_result_message(update_obj, text, result_keyboard(user_id, is_multi=True, current_index=index, total_count=len(products_data)))
 
 
-async def next_detail(query, user_id: int):
+async def next_detail(update_obj, user_id: int):
     """Переход к следующему изделию"""
     session = get_session(user_id)
     products_data = session.get('products_with_details', [])
@@ -335,10 +335,10 @@ async def next_detail(query, user_id: int):
     next_index = current + 1
     if next_index < len(products_data):
         session['result_page'] = next_index
-        await show_product_detail(query, user_id, next_index)
+        await show_product_detail(update_obj, user_id, next_index)
 
 
-async def prev_detail(query, user_id: int):
+async def prev_detail(update_obj, user_id: int):
     """Переход к предыдущему изделию"""
     session = get_session(user_id)
     current = session.get('result_page', 0)
@@ -346,27 +346,27 @@ async def prev_detail(query, user_id: int):
     prev_index = current - 1
     if prev_index >= 0:
         session['result_page'] = prev_index
-        await show_product_detail(query, user_id, prev_index)
+        await show_product_detail(update_obj, user_id, prev_index)
 
 
-async def back_to_total_summary(query, user_id: int):
+async def back_to_total_summary(update_obj, user_id: int):
     """Возврат к общей сводке"""
     session = get_session(user_id)
     session['result_page'] = -1
-    await _show_total_summary(query, user_id)
+    await _show_total_summary(update_obj, user_id)
 
 
-async def back_to_result(query, user_id: int):
+async def back_to_result(update_obj, user_id: int):
     """Возврат к результатам из пояснения"""
     session = get_session(user_id)
     text = session.get('last_result_text')
     keyboard = session.get('last_result_keyboard')
     
     if text and keyboard:
-        await query.edit_message_text(text, reply_markup=keyboard, parse_mode='Markdown')
+        await _send_result_message(update_obj, text, keyboard)
 
 
-async def same_category(query, user_id: int):
+async def same_category(update_obj, user_id: int):
     """Новый расчёт в той же категории"""
     session = get_session(user_id)
     category_path = session.get('category_path', [])
@@ -378,28 +378,30 @@ async def same_category(query, user_id: int):
     path_str = " > ".join(category_path) if category_path else ""
     
     if mode == 'single':
-        await query.edit_message_text(
+        await _send_result_message(
+            update_obj,
             f"📊 ПАРАМЕТРЫ РАСЧЁТА\n\n"
             f"Категория: {path_str}\n\n"
             f"Введите эффективность производства (%):\n"
             f"Пример: 110",
-            reply_markup=cancel_button(user_id)
+            cancel_button(user_id)
         )
     else:
-        await query.edit_message_text(
+        await _send_result_message(
+            update_obj,
             f"📊 ПАРАМЕТРЫ РАСЧЁТА\n\n"
             f"Категория: {path_str}\n\n"
             f"Введите эффективность производства (%):\n"
             f"(общая для всех изделий)\n\n"
             f"Пример: 110",
-            reply_markup=cancel_button(user_id)
+            cancel_button(user_id)
         )
 
 
-async def show_explanation(query, user_id: int):
+async def show_explanation(update_obj, user_id: int):
     """Показывает пояснение"""
-    await query.edit_message_text(
+    await _send_result_message(
+        update_obj,
         format_explanation(),
-        reply_markup=explanation_keyboard(user_id),
-        parse_mode='Markdown'
+        explanation_keyboard(user_id)
     )
