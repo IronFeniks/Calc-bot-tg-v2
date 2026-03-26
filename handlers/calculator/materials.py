@@ -1,6 +1,6 @@
 import logging
 import math
-from telegram import Update
+from telegram import Update, CallbackQuery
 from telegram.ext import ContextTypes
 from keyboards.calculator import materials_keyboard, missing_prices_keyboard, cancel_button
 from utils.formatters import format_number, format_price, format_material_line
@@ -201,7 +201,7 @@ async def _calculate_materials(product_code: str, quantity: int, efficiency: flo
     return materials_list, node_details
 
 
-async def _show_materials_list(update, user_id: int, is_multi: bool = False):
+async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False):
     """Показывает список материалов и узлов"""
     session = get_session(user_id)
     materials = session.get('materials_list', [])
@@ -249,16 +249,21 @@ async def _show_materials_list(update, user_id: int, is_multi: bool = False):
     missing = [i for i in all_items if i.get('price', 0) == 0]
     session['missing_materials'] = missing
     
-    await update.message.reply_text(
-        text,
-        reply_markup=materials_keyboard(all_items, user_id, page + 1, total_pages, "multi" if is_multi else "single")
-    )
-
-# Остальные функции materials.py (start_price_input, _process_next_price, process_price_input_value, auto_prices, input_missing_prices, _process_next_missing_price, process_missing_price_value) остаются без изменений
+    # Определяем, с чем работаем: с Update или с CallbackQuery
+    if isinstance(update_obj, CallbackQuery):
+        await update_obj.edit_message_text(
+            text,
+            reply_markup=materials_keyboard(all_items, user_id, page + 1, total_pages, "multi" if is_multi else "single")
+        )
+    else:
+        await update_obj.message.reply_text(
+            text,
+            reply_markup=materials_keyboard(all_items, user_id, page + 1, total_pages, "multi" if is_multi else "single")
+        )
 
 
 async def start_price_input(query, user_id: int):
-    """Начало пошагового ввода цен"""
+    """Начало пошагового ввода цен (вызывается из callback)"""
     session = get_session(user_id)
     materials = session.get('materials_list', [])
     nodes = session.get('nodes_list', [])
@@ -270,10 +275,10 @@ async def start_price_input(query, user_id: int):
     session['current_material'] = 0
     session['step'] = 'price_input_waiting'
     
-    await _process_next_price(query, user_id)
+    await _process_next_price(query, user_id, is_callback=True)
 
 
-async def _process_next_price(query, user_id: int):
+async def _process_next_price(update_obj, user_id: int, is_callback: bool = True):
     """Ввод цены для следующего элемента"""
     session = get_session(user_id)
     items = session.get('price_input_items', [])
@@ -281,7 +286,7 @@ async def _process_next_price(query, user_id: int):
     
     if current >= len(items):
         from .results import calculate_final_result
-        await calculate_final_result(query, user_id)
+        await calculate_final_result(update_obj, user_id)
         return
     
     item = items[current]
@@ -293,14 +298,16 @@ async def _process_next_price(query, user_id: int):
     text += f"Текущая цена в базе: {format_price(current_price)}\n\n"
     text += "Введите цену за 1 шт (ISK):"
     
-    await query.edit_message_text(
-        text,
-        reply_markup=cancel_button(user_id)
-    )
+    if is_callback and hasattr(update_obj, 'edit_message_text'):
+        await update_obj.edit_message_text(text, reply_markup=cancel_button(user_id))
+    elif hasattr(update_obj, 'message') and hasattr(update_obj.message, 'reply_text'):
+        await update_obj.message.reply_text(text, reply_markup=cancel_button(user_id))
+    else:
+        await update_obj.reply_text(text, reply_markup=cancel_button(user_id))
 
 
 async def process_price_input_value(update: Update, user_id: int, text: str):
-    """Обработка введённой цены"""
+    """Обработка введённой цены (вызывается из текстового обработчика)"""
     from utils.formatters import parse_float_input
     
     price = parse_float_input(text)
@@ -319,10 +326,8 @@ async def process_price_input_value(update: Update, user_id: int, text: str):
         item = items[current]
         item['price'] = price
         
-        # Сохраняем цену в базу
         save_material_price(item['name'], price)
         
-        # Обновляем цену в основном списке
         if item.get('type') == 'material':
             for m in session.get('materials_list', []):
                 if m['name'] == item['name']:
@@ -333,11 +338,11 @@ async def process_price_input_value(update: Update, user_id: int, text: str):
                     n['price'] = price
         
         session['current_material'] = current + 1
-        await _process_next_price(update, user_id)
+        await _process_next_price(update, user_id, is_callback=False)
 
 
 async def auto_prices(query, user_id: int):
-    """Автоматическая подстановка цен"""
+    """Автоматическая подстановка цен (вызывается из callback)"""
     session = get_session(user_id)
     materials = session.get('materials_list', [])
     nodes = session.get('nodes_list', [])
@@ -359,17 +364,14 @@ async def auto_prices(query, user_id: int):
         session['missing_materials'] = missing
         session['step'] = 'missing_prices'
         
-        await query.edit_message_text(
-            text,
-            reply_markup=missing_prices_keyboard(user_id)
-        )
+        await query.edit_message_text(text, reply_markup=missing_prices_keyboard(user_id))
     else:
         from .results import calculate_final_result
         await calculate_final_result(query, user_id)
 
 
 async def input_missing_prices(query, user_id: int):
-    """Ввод только недостающих цен"""
+    """Ввод только недостающих цен (вызывается из callback)"""
     session = get_session(user_id)
     missing = session.get('missing_materials', [])
     
@@ -377,10 +379,10 @@ async def input_missing_prices(query, user_id: int):
     session['current_material'] = 0
     session['step'] = 'price_input_missing_waiting'
     
-    await _process_next_missing_price(query, user_id)
+    await _process_next_missing_price(query, user_id, is_callback=True)
 
 
-async def _process_next_missing_price(query, user_id: int):
+async def _process_next_missing_price(update_obj, user_id: int, is_callback: bool = True):
     """Ввод цены для недостающего элемента"""
     session = get_session(user_id)
     items = session.get('price_input_items', [])
@@ -388,7 +390,7 @@ async def _process_next_missing_price(query, user_id: int):
     
     if current >= len(items):
         from .results import calculate_final_result
-        await calculate_final_result(query, user_id)
+        await calculate_final_result(update_obj, user_id)
         return
     
     item = items[current]
@@ -398,10 +400,12 @@ async def _process_next_missing_price(query, user_id: int):
     text += f"Необходимое количество: {format_number(item['qty'])} шт\n\n"
     text += "Введите цену за 1 шт (ISK):"
     
-    await query.edit_message_text(
-        text,
-        reply_markup=cancel_button(user_id)
-    )
+    if is_callback and hasattr(update_obj, 'edit_message_text'):
+        await update_obj.edit_message_text(text, reply_markup=cancel_button(user_id))
+    elif hasattr(update_obj, 'message') and hasattr(update_obj.message, 'reply_text'):
+        await update_obj.message.reply_text(text, reply_markup=cancel_button(user_id))
+    else:
+        await update_obj.reply_text(text, reply_markup=cancel_button(user_id))
 
 
 async def process_missing_price_value(update: Update, user_id: int, text: str):
@@ -424,10 +428,8 @@ async def process_missing_price_value(update: Update, user_id: int, text: str):
         item = items[current]
         item['price'] = price
         
-        # Сохраняем цену в базу
         save_material_price(item['name'], price)
         
-        # Обновляем цену в основном списке
         if item.get('type') == 'material':
             for m in session.get('materials_list', []):
                 if m['name'] == item['name']:
@@ -438,4 +440,4 @@ async def process_missing_price_value(update: Update, user_id: int, text: str):
                     n['price'] = price
         
         session['current_material'] = current + 1
-        await _process_next_missing_price(update, user_id)
+        await _process_next_missing_price(update, user_id, is_callback=False)
