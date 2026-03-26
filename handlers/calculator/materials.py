@@ -18,10 +18,18 @@ async def calculate_single_materials(update, user_id: int):
     excel = get_excel_handler()
     product = session.get('selected_product', {})
     quantity = session.get('qty', 0)
-    efficiency = session.get('efficiency', 150)
+    efficiency = session.get('efficiency')
+    
+    if efficiency is None:
+        logger.error(f"efficiency is None в calculate_single_materials для пользователя {user_id}")
+        await update.message.reply_text(
+            "❌ Ошибка: не задана эффективность. Пожалуйста, начните расчёт заново с /start",
+            reply_markup=cancel_button(user_id)
+        )
+        return
+    
     saved_prices = get_all_material_prices()
     
-    # Рассчитываем материалы
     materials_list, nodes_list = await _calculate_materials(
         product['Код'], quantity, efficiency, excel, saved_prices
     )
@@ -44,7 +52,16 @@ async def calculate_multi_materials(update, user_id: int):
     session = get_session(user_id)
     excel = get_excel_handler()
     products_data = session.get('multi_products_data', [])
-    efficiency = session.get('efficiency', 150)
+    efficiency = session.get('efficiency')
+    
+    if efficiency is None:
+        logger.error(f"efficiency is None в calculate_multi_materials для пользователя {user_id}")
+        await update.message.reply_text(
+            "❌ Ошибка: не задана эффективность. Пожалуйста, начните расчёт заново с /start",
+            reply_markup=cancel_button(user_id)
+        )
+        return
+    
     saved_prices = get_all_material_prices()
     
     all_materials = []
@@ -72,10 +89,8 @@ async def calculate_multi_materials(update, user_id: int):
             'node_details': nodes_list
         })
     
-    # Объединяем одинаковые материалы
     merged_materials = merge_materials(all_materials)
     
-    # Объединяем одинаковые узлы
     merged_nodes = {}
     for node in all_nodes:
         name = node['name']
@@ -133,7 +148,6 @@ async def _calculate_materials(product_code: str, quantity: int, efficiency: flo
             except:
                 child_price = 0
             
-            # Расчёт с учётом эффективности
             per_drawing = calculate_with_efficiency(child_qty, efficiency)
             rounded = round_quantity(per_drawing)
             total_qty = rounded * multiplier
@@ -179,7 +193,6 @@ async def _calculate_materials(product_code: str, quantity: int, efficiency: flo
     
     collect_materials(product_code, drawings_needed)
     
-    # Преобразуем в список
     materials_list = list(materials_dict.values())
     materials_list.sort(key=lambda x: x['name'])
     for i, item in enumerate(materials_list, 1):
@@ -194,11 +207,9 @@ async def _show_materials_list(update, user_id: int, is_multi: bool = False):
     materials = session.get('materials_list', [])
     nodes = session.get('nodes_list', [])
     
-    # Объединяем материалы и узлы для отображения
     all_items = materials + nodes
     all_items.sort(key=lambda x: x.get('number', 0))
     
-    # Переопределяем номера для объединённого списка
     for i, item in enumerate(all_items, 1):
         item['display_number'] = i
     
@@ -208,7 +219,6 @@ async def _show_materials_list(update, user_id: int, is_multi: bool = False):
     end = min(start + 10, len(all_items))
     page_items = all_items[start:end]
     
-    # Формируем текст
     text = "📦 МАТЕРИАЛЫ И УЗЛЫ\n\n"
     if not is_multi:
         product = session.get('selected_product', {})
@@ -218,7 +228,6 @@ async def _show_materials_list(update, user_id: int, is_multi: bool = False):
     text += f"Эффективность: {session.get('efficiency', 150)}%\n\n"
     text += f"Страница {page + 1} из {total_pages}\n\n"
     
-    # Материалы
     materials_in_page = [i for i in page_items if i.get('type') == 'material']
     if materials_in_page:
         text += "МАТЕРИАЛЫ:\n"
@@ -228,7 +237,6 @@ async def _show_materials_list(update, user_id: int, is_multi: bool = False):
             ) + "\n"
         text += "\n"
     
-    # Узлы
     nodes_in_page = [i for i in page_items if i.get('type') == 'node']
     if nodes_in_page:
         text += "УЗЛЫ:\n"
@@ -238,7 +246,6 @@ async def _show_materials_list(update, user_id: int, is_multi: bool = False):
             ) + "\n"
         text += "\n"
     
-    # Проверяем, есть ли материалы без цен
     missing = [i for i in all_items if i.get('price', 0) == 0]
     session['missing_materials'] = missing
     
@@ -246,6 +253,8 @@ async def _show_materials_list(update, user_id: int, is_multi: bool = False):
         text,
         reply_markup=materials_keyboard(all_items, user_id, page + 1, total_pages, "multi" if is_multi else "single")
     )
+
+# Остальные функции materials.py (start_price_input, _process_next_price, process_price_input_value, auto_prices, input_missing_prices, _process_next_missing_price, process_missing_price_value) остаются без изменений
 
 
 async def start_price_input(query, user_id: int):
