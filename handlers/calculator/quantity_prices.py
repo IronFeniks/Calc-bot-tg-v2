@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 async def process_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str):
-    """Обработка ввода количества для одиночного режима"""
+    """Обработка ввода количества для одиночного режима (после налога)"""
     qty = parse_int_input(text)
     session = get_session(user_id)
     product = session.get('selected_product', {})
@@ -95,12 +95,21 @@ async def process_drawing_price(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return
     
+    # Проверяем, что tax установлен
+    tax = session.get('tax')
+    if tax is None:
+        logger.error(f"tax is None для пользователя {user_id}")
+        await update.message.reply_text(
+            "❌ Ошибка: не задан налог. Пожалуйста, начните расчёт заново с /start",
+            reply_markup=cancel_button(user_id)
+        )
+        return
+    
     product = session.get('selected_product', {})
     save_drawing_price(product.get('Код', ''), price)
     
-    logger.info(f"✅ Цена чертежа сохранена: {price}, efficiency={efficiency}")
+    logger.info(f"✅ Цена чертежа сохранена: {price}, efficiency={efficiency}, tax={tax}")
     
-    # Переходим к расчёту материалов
     from .materials import calculate_single_materials
     await calculate_single_materials(update, user_id)
 
@@ -180,7 +189,6 @@ async def process_multi_drawing_price(update: Update, context: ContextTypes.DEFA
     session = get_session(user_id)
     product = session.get('current_multi_product', {})
     
-    # Проверяем, что efficiency установлен
     efficiency = session.get('efficiency')
     if efficiency is None:
         logger.error(f"efficiency is None для пользователя {user_id} в множественном режиме")
