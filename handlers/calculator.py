@@ -481,12 +481,12 @@ async def confirm_products(query, user_id):
 # ==================== ВВОД ПАРАМЕТРОВ (ОБЩИЙ) ====================
 
 async def process_efficiency(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str):
-    """Обработка ввода эффективности"""
+    """Обработка ввода эффективности для одиночного режима"""
     efficiency = parse_float_input(text)
     if efficiency is None or efficiency < 50 or efficiency > 150:
         await update.message.reply_text(
             "❌ Введите число от 50 до 150 (процентов)",
-            reply_markup=cancel_button(user_id)
+            reply_markup=back_button(user_id, "categories")
         )
         return
     
@@ -504,35 +504,104 @@ async def process_efficiency(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
 
 async def process_tax(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str):
-    """Обработка ввода налога"""
+    """Обработка ввода налога для одиночного режима"""
     tax = parse_float_input(text)
     if tax is None or tax < 0 or tax > 100:
         await update.message.reply_text(
             "❌ Введите число от 0 до 100 (процентов)",
-            reply_markup=cancel_button(user_id)
+            reply_markup=back_button(user_id, "categories")
         )
         return
     
     session = get_session(user_id)
     session['tax'] = tax
     
-    if session['mode'] == 'single':
-        session['step'] = 'quantity'
-        product = session.get('selected_product', {})
-        multiplicity = product.get('Кратность', 1)
-        
+    # Переходим к вводу количества
+    session['step'] = 'quantity'
+    product = session.get('selected_product', {})
+    multiplicity = product.get('Кратность', 1)
+    
+    await update.message.reply_text(
+        f"📦 КОЛИЧЕСТВО\n\n"
+        f"Изделие: {product.get('Наименование', '')}\n"
+        f"Кратность: {multiplicity}\n\n"
+        f"Введите количество продукции (шт):\n"
+        f"(должно быть кратно {multiplicity})",
+        reply_markup=cancel_button(user_id)
+    )
+
+
+async def process_multi_efficiency(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str):
+    """Обработка ввода эффективности для множественного режима"""
+    efficiency = parse_float_input(text)
+    if efficiency is None or efficiency < 50 or efficiency > 150:
         await update.message.reply_text(
-            f"📦 КОЛИЧЕСТВО\n\n"
-            f"Изделие: {product.get('Наименование', '')}\n"
-            f"Кратность: {multiplicity}\n\n"
-            f"Введите количество продукции (шт):\n"
-            f"(должно быть кратно {multiplicity})",
-            reply_markup=cancel_button(user_id)
+            "❌ Введите число от 50 до 150 (процентов)",
+            reply_markup=back_button(user_id, "categories")
         )
-    else:
-        # Множественный режим — начинаем ввод для первого изделия
-        session['step'] = 'multi_quantity'
-        await process_next_multi_product(update, user_id)
+        return
+    
+    session = get_session(user_id)
+    session['efficiency'] = efficiency
+    session['step'] = 'multi_tax'
+    
+    await update.message.reply_text(
+        f"📊 ПАРАМЕТРЫ РАСЧЁТА (2/2)\n\n"
+        f"Введите ставку налога (%):\n"
+        f"(налог рассчитывается только при положительной прибыли)\n\n"
+        f"Пример: 20",
+        reply_markup=cancel_button(user_id)
+    )
+
+
+async def process_multi_tax(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str):
+    """Обработка ввода налога для множественного режима"""
+    tax = parse_float_input(text)
+    if tax is None or tax < 0 or tax > 100:
+        await update.message.reply_text(
+            "❌ Введите число от 0 до 100 (процентов)",
+            reply_markup=back_button(user_id, "categories")
+        )
+        return
+    
+    session = get_session(user_id)
+    session['tax'] = tax
+    
+    # Получаем выбранные изделия
+    selected_names = session.get('selected_products', [])
+    if not selected_names:
+        await update.message.reply_text(
+            "❌ Нет выбранных изделий",
+            reply_markup=back_button(user_id, "categories")
+        )
+        return
+    
+    # Загружаем полные данные об изделиях
+    excel = get_excel_handler()
+    products = []
+    for name in selected_names:
+        product = excel.get_product_by_name(name)
+        if product:
+            products.append(product)
+        else:
+            logger.warning(f"Изделие не найдено: {name}")
+    
+    if not products:
+        await update.message.reply_text(
+            "❌ Не удалось загрузить выбранные изделия",
+            reply_markup=back_button(user_id, "categories")
+        )
+        return
+    
+    session['multi_products'] = products
+    session['current_product_index'] = 0
+    session['multi_products_data'] = []
+    session['step'] = 'multi_quantity'
+    
+    await process_next_multi_product(update, user_id)
+
+
+# ==================== МНОЖЕСТВЕННЫЙ РЕЖИМ — ВВОД ПАРАМЕТРОВ ДЛЯ КАЖДОГО ====================
 
 
 # ==================== МНОЖЕСТВЕННЫЙ РЕЖИМ — ВВОД ПАРАМЕТРОВ ДЛЯ КАЖДОГО ====================
@@ -1491,45 +1560,89 @@ async def calculator_text_handler(update: Update, context: ContextTypes.DEFAULT_
     if is_topic and lock and lock.current_user == user_id:
         lock.refresh(user_id)
     
-    # Маршрутизация по шагу
+    logger.info(f"📝 Текстовый ввод от {user_id}: '{text}', шаг={step}, режим={session.get('mode')}")
+    
+    # ==================== ОДИНОЧНЫЙ РЕЖИМ ====================
     if step == 'efficiency':
         await process_efficiency(update, context, user_id, text)
+        return
     elif step == 'tax':
         await process_tax(update, context, user_id, text)
+        return
     elif step == 'quantity':
         await process_quantity(update, context, user_id, text)
+        return
     elif step == 'market_price':
         await process_market_price(update, context, user_id, text)
+        return
     elif step == 'drawing_price':
         await process_drawing_price(update, context, user_id, text)
+        return
+    
+    # ==================== МНОЖЕСТВЕННЫЙ РЕЖИМ ====================
+    elif step == 'multi_efficiency':
+        await process_multi_efficiency(update, context, user_id, text)
+        return
+    elif step == 'multi_tax':
+        await process_multi_tax(update, context, user_id, text)
+        return
     elif step == 'multi_quantity':
         await process_multi_quantity(update, context, user_id, text)
+        return
     elif step == 'multi_market_price':
         await process_multi_market_price(update, context, user_id, text)
+        return
     elif step == 'multi_drawing_price':
         await process_multi_drawing_price(update, context, user_id, text)
+        return
+    
+    # ==================== ВВОД ЦЕН ====================
     elif step == 'price_input_waiting':
         await process_price_input_value(update, user_id, text)
+        return
     elif step == 'price_input_missing_waiting':
         await process_missing_price_value(update, user_id, text)
+        return
+    
+    # ==================== ВЫБОР ИЗДЕЛИЯ ПО НОМЕРУ ====================
     elif step == 'products':
-        # Выбор изделия по номеру (одиночный режим)
         try:
             idx = int(text) - 1
             items = session.get('current_products', [])
             if 0 <= idx < len(items):
                 product = items[idx]
-                await select_product(update, context, user_id, product['name'])
+                # Сохраняем выбранное изделие
+                excel = get_excel_handler()
+                product_full = excel.get_product_by_name(product['name'])
+                if product_full:
+                    session['selected_product'] = product_full
+                    session['step'] = 'quantity'
+                    multiplicity = product_full.get('Кратность', 1)
+                    await update.message.reply_text(
+                        f"✅ Выбрано: {product_full['Наименование']}\n"
+                        f"📦 Кратность: {multiplicity}\n\n"
+                        f"📦 Введите количество продукции (шт):\n"
+                        f"(должно быть кратно {multiplicity})",
+                        reply_markup=back_button(user_id, "products")
+                    )
+                else:
+                    await update.message.reply_text(
+                        "❌ Ошибка загрузки изделия",
+                        reply_markup=back_button(user_id, "products")
+                    )
             else:
                 await update.message.reply_text(
                     f"❌ Введите число от 1 до {len(items)}",
-                    reply_markup=cancel_button(user_id)
+                    reply_markup=back_button(user_id, "products")
                 )
         except ValueError:
             await update.message.reply_text(
                 "❌ Введите номер изделия",
-                reply_markup=cancel_button(user_id)
+                reply_markup=back_button(user_id, "products")
             )
+        return
+    
+    # ==================== НЕИЗВЕСТНЫЙ ШАГ ====================
     else:
         await update.message.reply_text(
             "❓ Я ожидаю команды из меню. Используйте /start для начала",
