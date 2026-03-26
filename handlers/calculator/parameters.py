@@ -44,9 +44,8 @@ async def process_tax(update: Update, context: ContextTypes.DEFAULT_TYPE, user_i
     
     session = get_session(user_id)
     session['tax'] = tax
-    
-    # Переходим к вводу количества
     session['step'] = 'quantity'
+    
     product = session.get('selected_product', {})
     multiplicity = product.get('Кратность', 1)
     
@@ -96,7 +95,6 @@ async def process_multi_tax(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     session = get_session(user_id)
     session['tax'] = tax
     
-    # Получаем выбранные изделия
     selected_names = session.get('selected_products', [])
     if not selected_names:
         await update.message.reply_text(
@@ -105,7 +103,6 @@ async def process_multi_tax(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         )
         return
     
-    # Загружаем полные данные об изделиях
     excel = get_excel_handler()
     products = []
     for name in selected_names:
@@ -137,7 +134,6 @@ async def process_next_multi_product(update, user_id: int):
     index = session.get('current_product_index', 0)
     
     if index >= len(products):
-        # Все параметры введены — переходим к расчёту
         from .materials import calculate_multi_materials
         await calculate_multi_materials(update, user_id)
         return
