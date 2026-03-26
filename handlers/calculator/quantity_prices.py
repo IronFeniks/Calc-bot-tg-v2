@@ -85,8 +85,20 @@ async def process_drawing_price(update: Update, context: ContextTypes.DEFAULT_TY
     session = get_session(user_id)
     session['drawing_price'] = price
     
+    # Проверяем, что efficiency установлен
+    efficiency = session.get('efficiency')
+    if efficiency is None:
+        logger.error(f"efficiency is None для пользователя {user_id}")
+        await update.message.reply_text(
+            "❌ Ошибка: не задана эффективность. Пожалуйста, начните расчёт заново с /start",
+            reply_markup=cancel_button(user_id)
+        )
+        return
+    
     product = session.get('selected_product', {})
     save_drawing_price(product.get('Код', ''), price)
+    
+    logger.info(f"✅ Цена чертежа сохранена: {price}, efficiency={efficiency}")
     
     # Переходим к расчёту материалов
     from .materials import calculate_single_materials
@@ -168,10 +180,18 @@ async def process_multi_drawing_price(update: Update, context: ContextTypes.DEFA
     session = get_session(user_id)
     product = session.get('current_multi_product', {})
     
-    # Сохраняем цену чертежа
+    # Проверяем, что efficiency установлен
+    efficiency = session.get('efficiency')
+    if efficiency is None:
+        logger.error(f"efficiency is None для пользователя {user_id} в множественном режиме")
+        await update.message.reply_text(
+            "❌ Ошибка: не задана эффективность. Пожалуйста, начните расчёт заново с /start",
+            reply_markup=cancel_button(user_id)
+        )
+        return
+    
     save_drawing_price(product.get('Код', ''), price)
     
-    # Сохраняем все данные для этого изделия
     product_data = {
         'product': product,
         'quantity': session.get('temp_quantity'),
@@ -180,8 +200,6 @@ async def process_multi_drawing_price(update: Update, context: ContextTypes.DEFA
     }
     
     session['multi_products_data'].append(product_data)
-    
-    # Переходим к следующему изделию
     session['current_product_index'] += 1
     
     from .parameters import process_next_multi_product
