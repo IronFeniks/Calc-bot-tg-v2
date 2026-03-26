@@ -1,17 +1,26 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import hashlib
 
+# Словарь для хранения маппинга хэшей к оригинальным данным
+# Формат: {user_id: {hash: original_value}}
+_hash_mapping = {}
+
+def get_hash_mapping(user_id: int) -> dict:
+    """Получить маппинг хэшей для пользователя"""
+    if user_id not in _hash_mapping:
+        _hash_mapping[user_id] = {}
+    return _hash_mapping[user_id]
+
+def clear_hash_mapping(user_id: int):
+    """Очистить маппинг хэшей для пользователя"""
+    if user_id in _hash_mapping:
+        _hash_mapping[user_id] = {}
+
+
 def make_callback(user_id: int, action: str, data: str = "") -> str:
     """
     Создаёт callback_data с проверкой длины (Telegram лимит 64 байта)
-    
-    Args:
-        user_id: ID пользователя
-        action: действие
-        data: дополнительные данные
-    
-    Returns:
-        строка для callback_data
+    Если данные длинные, заменяет их на хэш и сохраняет маппинг
     """
     if data:
         base = f"user_{user_id}_{action}_{data}"
@@ -23,7 +32,27 @@ def make_callback(user_id: int, action: str, data: str = "") -> str:
     
     # Если длинно, берём хэш от данных
     data_hash = hashlib.md5(data.encode()).hexdigest()[:8]
+    
+    # Сохраняем маппинг для восстановления
+    mapping = get_hash_mapping(user_id)
+    mapping[data_hash] = data
+    
     return f"user_{user_id}_{action}_{data_hash}"
+
+
+def restore_callback_data(user_id: int, action: str, data_hash: str) -> str:
+    """
+    Восстанавливает оригинальные данные из хэша
+    """
+    mapping = get_hash_mapping(user_id)
+    if data_hash in mapping:
+        return mapping[data_hash]
+    return data_hash
+
+
+def clear_user_mapping(user_id: int):
+    """Очищает маппинг для пользователя (при завершении сессии)"""
+    clear_hash_mapping(user_id)
 
 
 # ==================== БАЗОВЫЕ КНОПКИ ====================
@@ -46,15 +75,6 @@ def back_button(user_id: int, to: str) -> InlineKeyboardMarkup:
 def navigation_buttons(user_id: int, page: int, total_pages: int, action: str) -> list:
     """
     Создаёт строку навигационных кнопок
-    
-    Args:
-        user_id: ID пользователя
-        page: текущая страница
-        total_pages: всего страниц
-        action: действие для callback (например, "categories_page")
-    
-    Returns:
-        список кнопок для строки
     """
     nav_row = []
     if page > 1:
@@ -80,25 +100,16 @@ def mode_selection_keyboard(user_id: int) -> InlineKeyboardMarkup:
 # ==================== КАТЕГОРИИ ====================
 
 def categories_keyboard(categories: list, user_id: int, page: int, total_pages: int) -> InlineKeyboardMarkup:
-    """
-    Клавиатура списка категорий
-    
-    Args:
-        categories: список категорий на текущей странице
-        user_id: ID пользователя
-        page: текущая страница
-        total_pages: всего страниц
-    """
+    """Клавиатура списка категорий"""
     keyboard = []
     
     for cat in categories:
-        cat_short = cat[:20]  # Обрезаем для callback
+        cat_short = cat[:20]
         keyboard.append([InlineKeyboardButton(
             f"📁 {cat}",
             callback_data=make_callback(user_id, "cat", cat_short)
         )])
     
-    # Навигация
     nav_row = navigation_buttons(user_id, page, total_pages, "categories_page")
     if nav_row:
         keyboard.append(nav_row)
@@ -111,25 +122,17 @@ def categories_keyboard(categories: list, user_id: int, page: int, total_pages: 
 # ==================== ИЗДЕЛИЯ (ОДИНОЧНЫЙ РЕЖИМ) ====================
 
 def products_keyboard(products: list, user_id: int, page: int, total_pages: int) -> InlineKeyboardMarkup:
-    """
-    Клавиатура списка изделий для одиночного режима
-    
-    Args:
-        products: список изделий на текущей странице
-        user_id: ID пользователя
-        page: текущая страница
-        total_pages: всего страниц
-    """
+    """Клавиатура списка изделий для одиночного режима"""
     keyboard = []
     
     for p in products:
         name = p['name'][:30] + "..." if len(p['name']) > 30 else p['name']
+        # Передаём полное название, make_callback сам обработает длину
         keyboard.append([InlineKeyboardButton(
             f"{name}",
             callback_data=make_callback(user_id, "select_product", p['name'])
         )])
     
-    # Навигация
     nav_row = navigation_buttons(user_id, page, total_pages, "products_page")
     if nav_row:
         keyboard.append(nav_row)
@@ -143,27 +146,18 @@ def products_keyboard(products: list, user_id: int, page: int, total_pages: int)
 # ==================== ИЗДЕЛИЯ (МНОЖЕСТВЕННЫЙ РЕЖИМ) ====================
 
 def multi_select_products_keyboard(products: list, user_id: int, page: int, total_pages: int, selected: set) -> InlineKeyboardMarkup:
-    """
-    Клавиатура списка изделий с чекбоксами для множественного режима
-    
-    Args:
-        products: список изделий на текущей странице
-        user_id: ID пользователя
-        page: текущая страница
-        total_pages: всего страниц
-        selected: множество выбранных названий
-    """
+    """Клавиатура списка изделий с чекбоксами для множественного режима"""
     keyboard = []
     
     for p in products:
         name = p['name'][:30] + "..." if len(p['name']) > 30 else p['name']
         checkbox = "☑️" if name in selected else "☐"
+        # Передаём полное название, make_callback сам обработает длину
         keyboard.append([InlineKeyboardButton(
             f"{checkbox} {name}",
             callback_data=make_callback(user_id, "toggle_product", p['name'])
         )])
     
-    # Навигация
     nav_row = navigation_buttons(user_id, page, total_pages, "multi_products_page")
     if nav_row:
         keyboard.append(nav_row)
@@ -178,24 +172,13 @@ def multi_select_products_keyboard(products: list, user_id: int, page: int, tota
 # ==================== МАТЕРИАЛЫ ====================
 
 def materials_keyboard(materials: list, user_id: int, page: int, total_pages: int, mode: str = "single") -> InlineKeyboardMarkup:
-    """
-    Клавиатура списка материалов
-    
-    Args:
-        materials: список материалов
-        user_id: ID пользователя
-        page: текущая страница
-        total_pages: всего страниц
-        mode: "single" или "multi"
-    """
+    """Клавиатура списка материалов"""
     keyboard = []
     
-    # Кнопки для постраничного просмотра материалов
     nav_row = navigation_buttons(user_id, page, total_pages, "materials_page")
     if nav_row:
         keyboard.append(nav_row)
     
-    # Основные кнопки
     keyboard.append([InlineKeyboardButton("✏️ Ввод цен", callback_data=make_callback(user_id, "price_input"))])
     keyboard.append([InlineKeyboardButton("🤖 Автоматически", callback_data=make_callback(user_id, "auto_prices"))])
     
@@ -223,15 +206,7 @@ def missing_prices_keyboard(user_id: int) -> InlineKeyboardMarkup:
 
 def result_keyboard(user_id: int, is_multi: bool = False, 
                     current_index: int = 0, total_count: int = 0) -> InlineKeyboardMarkup:
-    """
-    Клавиатура для страницы результатов
-    
-    Args:
-        user_id: ID пользователя
-        is_multi: множественный ли режим
-        current_index: текущий индекс изделия (для множественного режима)
-        total_count: общее количество изделий (для множественного режима)
-    """
+    """Клавиатура для страницы результатов"""
     keyboard = []
     
     if is_multi and total_count > 0:
@@ -243,7 +218,7 @@ def result_keyboard(user_id: int, is_multi: bool = False,
         if nav_row:
             keyboard.append(nav_row)
         
-        if current_index != -1:  # -1 означает общую сводку
+        if current_index != -1:
             keyboard.append([InlineKeyboardButton("📊 Общая сводка", callback_data=make_callback(user_id, "total_summary"))])
     
     keyboard.append([InlineKeyboardButton("🔄 Новый расчёт в этой категории", callback_data=make_callback(user_id, "same_category"))])
@@ -260,8 +235,6 @@ def explanation_keyboard(user_id: int) -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(keyboard)
 
-
-# ==================== ПОМОЩЬ ====================
 
 def help_keyboard(user_id: int) -> InlineKeyboardMarkup:
     """Клавиатура для возврата из помощи"""
