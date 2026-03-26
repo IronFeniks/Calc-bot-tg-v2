@@ -6,7 +6,7 @@ from config import GROUP_ID, TOPIC_ID
 from user_lock import UserLock
 from handlers.calculator import start_calculator, calculator_text_handler, calculator_callback_handler, cancel_calculator, help_calculator
 from handlers.admin import start_admin, admin_text_handler, admin_callback_handler, cancel_admin, help_admin
-from handlers.auth import is_admin  # ← импорт из нового модуля
+from handlers.auth import is_admin
 from keyboards.admin import mode_selection_keyboard
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,6 @@ def clear_user_mode(user_id: int):
     if user_id in user_modes:
         del user_modes[user_id]
 
-# is_admin уже импортирован из auth.py
 
 async def router_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, command: str):
     """Главный маршрутизатор"""
