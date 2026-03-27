@@ -112,14 +112,14 @@ async def process_drawing_price(update: Update, context: ContextTypes.DEFAULT_TY
     await calculate_single_materials(update, user_id)
 
 
-# ==================== МНОЖЕСТВЕННЫЙ РЕЖИМ ====================
-
 async def process_multi_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str):
     """Обработка ввода количества для множественного режима"""
     qty = parse_int_input(text)
     session = get_session(user_id)
     product = session.get('current_multi_product', {})
     multiplicity = product.get('Кратность', 1)
+    current_index = session.get('current_product_index', 0)
+    total_products = len(session.get('multi_products', []))
     
     if qty is None or qty <= 0 or qty % multiplicity != 0:
         await update.message.reply_text(
@@ -128,14 +128,14 @@ async def process_multi_quantity(update: Update, context: ContextTypes.DEFAULT_T
         )
         return
     
+    # Сохраняем количество во временную переменную
     session['temp_quantity'] = qty
     session['step'] = 'multi_market_price'
     
     saved_price = get_drawing_price(product.get('Код', ''))
     price_text = format_price(saved_price) if saved_price > 0 else "не установлена"
     
-    current_index = session.get('current_product_index', 0)
-    total_products = len(session.get('multi_products', []))
+    logger.info(f"📦 Количество для {product['Наименование']} сохранено: {qty}, переход к рыночной цене")
     
     await update.message.reply_text(
         f"💰 РЫНОЧНАЯ ЦЕНА ({current_index + 1}/{total_products})\n\n"
@@ -164,11 +164,12 @@ async def process_multi_market_price(update: Update, context: ContextTypes.DEFAU
     session['step'] = 'multi_drawing_price'
     
     product = session.get('current_multi_product', {})
+    current_index = session.get('current_product_index', 0)
+    total_products = len(session.get('multi_products', []))
     saved_price = get_drawing_price(product.get('Код', ''))
     price_text = format_price(saved_price) if saved_price > 0 else "не установлена"
     
-    current_index = session.get('current_product_index', 0)
-    total_products = len(session.get('multi_products', []))
+    logger.info(f"💰 Рыночная цена для {product['Наименование']} сохранена: {price}, переход к стоимости чертежа")
     
     await update.message.reply_text(
         f"💰 СТОИМОСТЬ ЧЕРТЕЖА ({current_index + 1}/{total_products})\n\n"
@@ -194,6 +195,8 @@ async def process_multi_drawing_price(update: Update, context: ContextTypes.DEFA
     
     session = get_session(user_id)
     product = session.get('current_multi_product', {})
+    current_index = session.get('current_product_index', 0)
+    total_products = len(session.get('multi_products', []))
     
     efficiency = session.get('efficiency')
     if efficiency is None:
@@ -206,6 +209,7 @@ async def process_multi_drawing_price(update: Update, context: ContextTypes.DEFA
     
     save_drawing_price(product.get('Код', ''), price)
     
+    # Сохраняем все данные для этого изделия
     product_data = {
         'product': product,
         'quantity': session.get('temp_quantity'),
@@ -215,12 +219,18 @@ async def process_multi_drawing_price(update: Update, context: ContextTypes.DEFA
     
     session['multi_products_data'].append(product_data)
     
-    # Увеличиваем индекс текущего изделия
-    current_index = session.get('current_product_index', 0)
+    # Увеличиваем индекс и переходим к следующему изделию
     session['current_product_index'] = current_index + 1
     
-    logger.info(f"✅ Сохранены данные для изделия {current_index + 1}: {product['Наименование']}")
+    logger.info(f"✅ Данные для {product['Наименование']} сохранены ({current_index + 1}/{total_products})")
     
-    # Переходим к следующему изделию
-    from .parameters import process_next_multi_product
-    await process_next_multi_product(update, user_id)
+    # Проверяем, есть ли ещё изделия
+    if session['current_product_index'] < total_products:
+        # Переходим к следующему изделию
+        from .parameters import process_next_multi_product
+        await process_next_multi_product(update, user_id)
+    else:
+        # Все изделия обработаны — переходим к расчёту материалов
+        logger.info(f"✅ Все {total_products} изделий обработаны, переход к расчёту материалов")
+        from .materials import calculate_multi_materials
+        await calculate_multi_materials(update, user_id)
