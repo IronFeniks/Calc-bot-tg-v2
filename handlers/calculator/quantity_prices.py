@@ -130,12 +130,14 @@ async def process_multi_quantity(update: Update, context: ContextTypes.DEFAULT_T
     
     # Сохраняем количество во временную переменную
     session['temp_quantity'] = qty
+    
+    # Устанавливаем следующий шаг — ввод рыночной цены
     session['step'] = 'multi_market_price'
     
     saved_price = get_drawing_price(product.get('Код', ''))
     price_text = format_price(saved_price) if saved_price > 0 else "не установлена"
     
-    logger.info(f"📦 Количество для {product['Наименование']} сохранено: {qty}, переход к рыночной цене")
+    logger.info(f"📦 Количество для {product['Наименование']} сохранено: {qty}, переход к рыночной цене (шаг multi_market_price)")
     
     await update.message.reply_text(
         f"💰 РЫНОЧНАЯ ЦЕНА ({current_index + 1}/{total_products})\n\n"
@@ -161,6 +163,8 @@ async def process_multi_market_price(update: Update, context: ContextTypes.DEFAU
     
     session = get_session(user_id)
     session['temp_market_price'] = price
+    
+    # Устанавливаем следующий шаг — ввод стоимости чертежа
     session['step'] = 'multi_drawing_price'
     
     product = session.get('current_multi_product', {})
@@ -169,7 +173,7 @@ async def process_multi_market_price(update: Update, context: ContextTypes.DEFAU
     saved_price = get_drawing_price(product.get('Код', ''))
     price_text = format_price(saved_price) if saved_price > 0 else "не установлена"
     
-    logger.info(f"💰 Рыночная цена для {product['Наименование']} сохранена: {price}, переход к стоимости чертежа")
+    logger.info(f"💰 Рыночная цена для {product['Наименование']} сохранена: {price}, переход к стоимости чертежа (шаг multi_drawing_price)")
     
     await update.message.reply_text(
         f"💰 СТОИМОСТЬ ЧЕРТЕЖА ({current_index + 1}/{total_products})\n\n"
@@ -219,14 +223,15 @@ async def process_multi_drawing_price(update: Update, context: ContextTypes.DEFA
     
     session['multi_products_data'].append(product_data)
     
-    # Увеличиваем индекс и переходим к следующему изделию
+    # Увеличиваем индекс
     session['current_product_index'] = current_index + 1
     
     logger.info(f"✅ Данные для {product['Наименование']} сохранены ({current_index + 1}/{total_products})")
     
     # Проверяем, есть ли ещё изделия
     if session['current_product_index'] < total_products:
-        # Переходим к следующему изделию
+        # Переходим к следующему изделию — устанавливаем шаг для ввода количества
+        session['step'] = 'multi_quantity'
         from .parameters import process_next_multi_product
         await process_next_multi_product(update, user_id)
     else:
