@@ -130,7 +130,7 @@ async def process_multi_tax(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     session['multi_products_data'] = []
     session['step'] = 'multi_quantity'
     
-    logger.info(f"✅ Налог сохранён для множественного режима: {tax} для пользователя {user_id}")
+    logger.info(f"✅ Налог сохранён для множественного режима: {tax}. Начинаем ввод для {len(products)} изделий")
     
     await process_next_multi_product(update, user_id)
 
@@ -141,7 +141,11 @@ async def process_next_multi_product(update, user_id: int):
     products = session.get('multi_products', [])
     index = session.get('current_product_index', 0)
     
+    logger.info(f"process_next_multi_product: индекс={index}, всего={len(products)}")
+    
     if index >= len(products):
+        # Все параметры введены — переходим к расчёту
+        logger.info(f"✅ Все {len(products)} изделий обработаны, переходим к расчёту материалов")
         from .materials import calculate_multi_materials
         await calculate_multi_materials(update, user_id)
         return
