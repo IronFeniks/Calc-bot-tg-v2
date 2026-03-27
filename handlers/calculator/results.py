@@ -13,6 +13,25 @@ from .session import get_session, reset_session_for_new_calculation
 logger = logging.getLogger(__name__)
 
 
+async def _send_result_message(update_obj, text: str, reply_markup, parse_mode: str = None):
+    """
+    Универсальная функция отправки результата
+    """
+    if isinstance(update_obj, CallbackQuery):
+        try:
+            await update_obj.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except Exception as e:
+            logger.error(f"Ошибка при редактировании сообщения: {e}")
+            # Если не удалось отредактировать, отправляем новое
+            await update_obj.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    elif hasattr(update_obj, 'message') and hasattr(update_obj.message, 'reply_text'):
+        await update_obj.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    elif hasattr(update_obj, 'reply_text'):
+        await update_obj.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    else:
+        logger.error(f"Не удалось отправить результат: неизвестный тип {type(update_obj)}")
+
+
 async def calculate_final_result(update_obj, user_id: int):
     """Финальный расчёт и вывод результатов"""
     session = get_session(user_id)
@@ -23,18 +42,6 @@ async def calculate_final_result(update_obj, user_id: int):
         await _calculate_single_result(update_obj, user_id, tax_rate)
     else:
         await _calculate_multi_result(update_obj, user_id, tax_rate)
-
-
-async def _send_result_message(update_obj, text: str, reply_markup):
-    """Универсальная функция отправки результата"""
-    if isinstance(update_obj, CallbackQuery):
-        await update_obj.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
-    elif hasattr(update_obj, 'message') and hasattr(update_obj.message, 'reply_text'):
-        await update_obj.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
-    elif hasattr(update_obj, 'reply_text'):
-        await update_obj.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
-    else:
-        logger.error(f"Не удалось отправить результат: неизвестный тип {type(update_obj)}")
 
 
 async def _calculate_single_result(update_obj, user_id: int, tax_rate: float):
@@ -123,7 +130,7 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float):
     session['last_result_text'] = text
     session['last_result_keyboard'] = result_keyboard(user_id, is_multi=False)
     
-    await _send_result_message(update_obj, text, result_keyboard(user_id, is_multi=False))
+    await _send_result_message(update_obj, text, result_keyboard(user_id, is_multi=False), parse_mode='Markdown')
 
 
 async def _calculate_multi_result(update_obj, user_id: int, tax_rate: float):
@@ -245,7 +252,7 @@ async def _show_total_summary(update_obj, user_id: int, tax_rate: float = None):
     session['last_result_text'] = text
     session['last_result_keyboard'] = result_keyboard(user_id, is_multi=True, current_index=-1, total_count=len(products_data))
     
-    await _send_result_message(update_obj, text, result_keyboard(user_id, is_multi=True, current_index=-1, total_count=len(products_data)))
+    await _send_result_message(update_obj, text, result_keyboard(user_id, is_multi=True, current_index=-1, total_count=len(products_data)), parse_mode='Markdown')
 
 
 async def show_product_detail(update_obj, user_id: int, index: int):
@@ -323,7 +330,7 @@ async def show_product_detail(update_obj, user_id: int, index: int):
     session['last_result_text'] = text
     session['last_result_keyboard'] = result_keyboard(user_id, is_multi=True, current_index=index, total_count=len(products_data))
     
-    await _send_result_message(update_obj, text, result_keyboard(user_id, is_multi=True, current_index=index, total_count=len(products_data)))
+    await _send_result_message(update_obj, text, result_keyboard(user_id, is_multi=True, current_index=index, total_count=len(products_data)), parse_mode='Markdown')
 
 
 async def next_detail(update_obj, user_id: int):
@@ -363,7 +370,7 @@ async def back_to_result(update_obj, user_id: int):
     keyboard = session.get('last_result_keyboard')
     
     if text and keyboard:
-        await _send_result_message(update_obj, text, keyboard)
+        await _send_result_message(update_obj, text, keyboard, parse_mode='Markdown')
 
 
 async def same_category(update_obj, user_id: int):
@@ -399,9 +406,10 @@ async def same_category(update_obj, user_id: int):
 
 
 async def show_explanation(update_obj, user_id: int):
-    """Показывает пояснение"""
+    """Показывает пояснение (без Markdown)"""
     await _send_result_message(
         update_obj,
         format_explanation(),
-        explanation_keyboard(user_id)
+        explanation_keyboard(user_id),
+        parse_mode=None  # Отключаем Markdown для пояснения
     )
