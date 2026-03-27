@@ -130,7 +130,7 @@ async def process_multi_tax(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     session['multi_products_data'] = []
     session['step'] = 'multi_quantity'
     
-    logger.info(f"✅ Налог сохранён для множественного режима: {tax}. Начинаем ввод для {len(products)} изделий")
+    logger.info(f"✅ Налог сохранён для множественного режима: {tax}, загружено {len(products)} изделий")
     
     await process_next_multi_product(update, user_id)
 
@@ -140,12 +140,11 @@ async def process_next_multi_product(update, user_id: int):
     session = get_session(user_id)
     products = session.get('multi_products', [])
     index = session.get('current_product_index', 0)
+    total = len(products)
     
-    logger.info(f"process_next_multi_product: индекс={index}, всего={len(products)}")
-    
-    if index >= len(products):
+    if index >= total:
         # Все параметры введены — переходим к расчёту
-        logger.info(f"✅ Все {len(products)} изделий обработаны, переходим к расчёту материалов")
+        logger.info(f"Все {total} изделий обработаны, переход к расчёту материалов")
         from .materials import calculate_multi_materials
         await calculate_multi_materials(update, user_id)
         return
@@ -155,8 +154,10 @@ async def process_next_multi_product(update, user_id: int):
     
     multiplicity = product.get('Кратность', 1)
     
+    logger.info(f"📦 Запрос количества для {product['Наименование']} ({index + 1}/{total})")
+    
     await update.message.reply_text(
-        f"📦 КОЛИЧЕСТВО ({index + 1}/{len(products)})\n\n"
+        f"📦 КОЛИЧЕСТВО ({index + 1}/{total})\n\n"
         f"Изделие: {product['Наименование']}\n"
         f"Кратность: {multiplicity}\n\n"
         f"Введите количество продукции (шт):\n"
