@@ -128,7 +128,7 @@ async def process_multi_tax(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     session['multi_products'] = products
     session['current_product_index'] = 0
     session['multi_products_data'] = []
-    session['step'] = 'multi_quantity'
+    session['step'] = 'multi_quantity'  # Устанавливаем шаг для ввода количества первого изделия
     
     logger.info(f"✅ Налог сохранён для множественного режима: {tax}, загружено {len(products)} изделий")
     
@@ -153,6 +153,9 @@ async def process_next_multi_product(update, user_id: int):
     session['current_multi_product'] = product
     
     multiplicity = product.get('Кратность', 1)
+    
+    # Убеждаемся, что шаг установлен правильно
+    session['step'] = 'multi_quantity'
     
     logger.info(f"📦 Запрос количества для {product['Наименование']} ({index + 1}/{total})")
     
