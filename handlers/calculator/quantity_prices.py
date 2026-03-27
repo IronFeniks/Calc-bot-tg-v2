@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 async def process_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str):
-    """Обработка ввода количества для одиночного режима (после налога)"""
+    """Обработка ввода количества для одиночного режима"""
     qty = parse_int_input(text)
     session = get_session(user_id)
     product = session.get('selected_product', {})
@@ -85,7 +85,6 @@ async def process_drawing_price(update: Update, context: ContextTypes.DEFAULT_TY
     session = get_session(user_id)
     session['drawing_price'] = price
     
-    # Проверяем, что efficiency установлен
     efficiency = session.get('efficiency')
     if efficiency is None:
         logger.error(f"efficiency is None для пользователя {user_id}")
@@ -95,7 +94,6 @@ async def process_drawing_price(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return
     
-    # Проверяем, что tax установлен
     tax = session.get('tax')
     if tax is None:
         logger.error(f"tax is None для пользователя {user_id}")
@@ -113,6 +111,8 @@ async def process_drawing_price(update: Update, context: ContextTypes.DEFAULT_TY
     from .materials import calculate_single_materials
     await calculate_single_materials(update, user_id)
 
+
+# ==================== МНОЖЕСТВЕННЫЙ РЕЖИМ ====================
 
 async def process_multi_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str):
     """Обработка ввода количества для множественного режима"""
@@ -134,8 +134,11 @@ async def process_multi_quantity(update: Update, context: ContextTypes.DEFAULT_T
     saved_price = get_drawing_price(product.get('Код', ''))
     price_text = format_price(saved_price) if saved_price > 0 else "не установлена"
     
+    current_index = session.get('current_product_index', 0)
+    total_products = len(session.get('multi_products', []))
+    
     await update.message.reply_text(
-        f"💰 РЫНОЧНАЯ ЦЕНА ({session['current_product_index'] + 1}/{len(session['multi_products'])})\n\n"
+        f"💰 РЫНОЧНАЯ ЦЕНА ({current_index + 1}/{total_products})\n\n"
         f"Изделие: {product['Наименование']}\n"
         f"Кратность: {multiplicity}\n\n"
         f"Введите рыночную цену за 1 шт (ISK):\n"
@@ -164,8 +167,11 @@ async def process_multi_market_price(update: Update, context: ContextTypes.DEFAU
     saved_price = get_drawing_price(product.get('Код', ''))
     price_text = format_price(saved_price) if saved_price > 0 else "не установлена"
     
+    current_index = session.get('current_product_index', 0)
+    total_products = len(session.get('multi_products', []))
+    
     await update.message.reply_text(
-        f"💰 СТОИМОСТЬ ЧЕРТЕЖА ({session['current_product_index'] + 1}/{len(session['multi_products'])})\n\n"
+        f"💰 СТОИМОСТЬ ЧЕРТЕЖА ({current_index + 1}/{total_products})\n\n"
         f"Изделие: {product['Наименование']}\n"
         f"Кратность: {product.get('Кратность', 1)}\n\n"
         f"Введите стоимость чертежа (ISK):\n"
@@ -208,7 +214,13 @@ async def process_multi_drawing_price(update: Update, context: ContextTypes.DEFA
     }
     
     session['multi_products_data'].append(product_data)
-    session['current_product_index'] += 1
     
+    # Увеличиваем индекс текущего изделия
+    current_index = session.get('current_product_index', 0)
+    session['current_product_index'] = current_index + 1
+    
+    logger.info(f"✅ Сохранены данные для изделия {current_index + 1}: {product['Наименование']}")
+    
+    # Переходим к следующему изделию
     from .parameters import process_next_multi_product
     await process_next_multi_product(update, user_id)
