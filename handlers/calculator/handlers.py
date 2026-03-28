@@ -30,7 +30,6 @@ async def start_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE, i
     """Запуск калькулятора"""
     user_id = update.effective_user.id
     
-    # Проверка блокировки для топика
     if is_topic and lock and lock.is_locked() and lock.current_user != user_id:
         lock_info = lock.get_lock_info()
         name = lock_info['first_name'] or f"@{lock_info['username']}" if lock_info['username'] else f"ID {lock_info['user_id']}"
@@ -40,23 +39,19 @@ async def start_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE, i
         )
         return
     
-    # Захват блокировки для топика
     if is_topic and lock:
         if not lock.acquire(user_id, update.effective_user.username, update.effective_user.first_name):
             await update.message.reply_text("❌ Не удалось начать расчёт. Попробуйте позже.")
             return
     
-    # Очищаем старую сессию
     clear_session(user_id)
     session = get_session(user_id)
     
-    # Загружаем дерево категорий
     excel = get_excel_handler()
     if excel:
         tree = excel.get_category_tree()
         session['category_tree'] = tree
     
-    # Определяем, какую инструкцию показывать
     if is_topic:
         instruction = INSTRUCTION_TOPIC
     else:
@@ -65,7 +60,6 @@ async def start_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE, i
         else:
             instruction = INSTRUCTION_PRIVATE
     
-    # Показываем меню выбора режима
     await update.message.reply_text(
         instruction,
         reply_markup=mode_selection_keyboard(user_id),
@@ -80,7 +74,6 @@ async def select_mode(query, user_id: int, mode: str):
     session['step'] = 'categories'
     session['category_path'] = []
     
-    # Получаем корневые категории
     tree = session.get('category_tree', {})
     categories = list(tree.keys())
     
@@ -106,7 +99,6 @@ async def calculator_text_handler(update: Update, context: ContextTypes.DEFAULT_
     session = get_session(user_id)
     step = session.get('step')
     
-    # Обновляем время блокировки для топика
     if is_topic and lock and lock.current_user == user_id:
         lock.refresh(user_id)
     
@@ -187,19 +179,61 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
         await query.answer("⛔ Эта кнопка не для вас", show_alert=True)
         return
     
-    # Обновляем время блокировки для топика
     if is_topic and lock and lock.current_user == user_id:
         lock.refresh(user_id)
     
-    # Убираем префикс
     action = data.replace(f"user_{user_id}_", "")
     
-    # Глобальная отмена
+    # ==================== ГЛОБАЛЬНЫЕ ====================
     if action == "cancel":
         await cancel_calculator(update, context, is_topic, lock)
         return
     
-    # Выбор режима
+    if action == "noop":
+        # Пустая кнопка для пагинации — ничего не делаем
+        return
+    
+    # ==================== ВЫБОР РЕЖИМА (для админа в личке) ====================
+    if action == "mode_calculator":
+        # Переход в режим калькулятора
+        session = get_session(user_id)
+        session['mode'] = 'single'
+        session['step'] = 'categories'
+        session['category_path'] = []
+        
+        tree = session.get('category_tree', {})
+        categories = list(tree.keys())
+        
+        if categories:
+            total_pages = (len(categories) + 9) // 10
+            page_categories = categories[:10]
+            
+            await query.edit_message_text(
+                "📂 ВЫБОР КАТЕГОРИИ\n\nДоступные категории:",
+                reply_markup=categories_keyboard(page_categories, user_id, 1, total_pages)
+            )
+        else:
+            await query.edit_message_text(
+                "❌ Нет доступных категорий",
+                reply_markup=cancel_button(user_id)
+            )
+        return
+    
+    if action == "mode_admin":
+        # Переход в режим администрирования
+        from handlers.admin import start_admin
+        await start_admin(update, context)
+        return
+    
+    if action == "mode_help":
+        await help_calculator(update, context, is_topic)
+        return
+    
+    if action == "mode_exit":
+        await cancel_calculator(update, context, is_topic, lock)
+        return
+    
+    # ==================== ВЫБОР РЕЖИМА РАСЧЁТА ====================
     if action == "single_mode":
         await select_mode(query, user_id, "single")
         return
@@ -207,7 +241,7 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
         await select_mode(query, user_id, "multi")
         return
     
-    # Навигация по категориям
+    # ==================== НАВИГАЦИЯ ПО КАТЕГОРИЯМ ====================
     if action.startswith("categories_page_"):
         page = int(action.replace("categories_page_", ""))
         await show_categories(query, user_id, page)
@@ -220,7 +254,7 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
         await back_to_categories(query, user_id)
         return
     
-    # Выбор изделия (одиночный) — ИСПРАВЛЕНО: передаём query вместо update
+    # ==================== ВЫБОР ИЗДЕЛИЯ (ОДИНОЧНЫЙ) ====================
     if action.startswith("select_product_"):
         product_name = action.replace("select_product_", "")
         await select_product_by_name(query, user_id, product_name)
@@ -230,7 +264,7 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
         await show_products(query, user_id, page)
         return
     
-    # Множественный выбор
+    # ==================== МНОЖЕСТВЕННЫЙ ВЫБОР ====================
     if action.startswith("toggle_product_"):
         product_name = action.replace("toggle_product_", "")
         await toggle_product(query, user_id, product_name)
@@ -243,7 +277,7 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
         await show_multi_products(query, user_id, page)
         return
     
-    # Материалы
+    # ==================== МАТЕРИАЛЫ ====================
     if action == "price_input":
         await start_price_input(query, user_id)
         return
@@ -263,7 +297,7 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
         await _show_materials_list(update, user_id, session.get('mode') == 'multi')
         return
     
-    # Результаты
+    # ==================== РЕЗУЛЬТАТЫ ====================
     if action == "next_detail":
         await next_detail(query, user_id)
         return
@@ -287,6 +321,10 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
         return
     elif action == "back_to_multi_select":
         await show_multi_products(query, user_id, 1)
+        return
+    elif action == "back_to_start":
+        # Возврат к началу из помощи
+        await start_calculator(update, context, is_topic, lock)
         return
     
     logger.warning(f"Неизвестный callback: {action}")
