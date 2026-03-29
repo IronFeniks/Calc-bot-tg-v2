@@ -339,6 +339,92 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False)
             )
         elif hasattr(update_obj, 'reply_text'):
             await update_obj.reply_text(
+async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False):
+    """Показывает список материалов и узлов"""
+    session = get_session(user_id)
+    materials = session.get('materials_list', [])
+    nodes = session.get('nodes_list', [])
+    
+    all_items = materials + nodes
+    all_items.sort(key=lambda x: x.get('name', ''))
+    
+    # Присваиваем глобальные номера для всех элементов (1, 2, 3...)
+    for i, item in enumerate(all_items, 1):
+        item['global_number'] = i
+    
+    # Если нет материалов и узлов, показываем сообщение
+    if not all_items:
+        text = "❌ Для выбранного изделия не найдено материалов или узлов в базе данных."
+        
+        if isinstance(update_obj, CallbackQuery):
+            await update_obj.edit_message_text(text, reply_markup=back_button(user_id, "products"))
+        elif hasattr(update_obj, 'message'):
+            await update_obj.message.reply_text(text, reply_markup=back_button(user_id, "products"))
+        else:
+            await update_obj.reply_text(text, reply_markup=back_button(user_id, "products"))
+        return
+    
+    # Пагинация: показываем по 15 элементов на странице
+    items_per_page = 15
+    total_pages = (len(all_items) + items_per_page - 1) // items_per_page
+    page = session.get('materials_page', 0)
+    
+    # Проверяем, что страница существует
+    if page >= total_pages:
+        page = total_pages - 1
+        session['materials_page'] = page
+    
+    start = page * items_per_page
+    end = min(start + items_per_page, len(all_items))
+    page_items = all_items[start:end]
+    
+    # Формируем текст
+    text = "📦 МАТЕРИАЛЫ И УЗЛЫ\n\n"
+    if not is_multi:
+        product = session.get('selected_product', {})
+        text += f"Изделие: {product.get('Наименование', '')}\n"
+    else:
+        text += f"Режим: множественный расчёт\n"
+    text += f"Эффективность: {session.get('efficiency', 150)}%\n\n"
+    text += f"Страница {page + 1} из {total_pages}\n\n"
+    
+    # Материалы
+    materials_in_page = [i for i in page_items if i.get('type') == 'material']
+    if materials_in_page:
+        text += "МАТЕРИАЛЫ:\n"
+        for item in materials_in_page:
+            price_str = format_price(item.get('price', 0)) if item.get('price', 0) > 0 else "не установлена"
+            text += f"{item['global_number']}. {item['name']}: нужно {format_number(item['qty'])} шт | цена: {price_str}\n"
+        text += "\n"
+    
+    # Узлы
+    nodes_in_page = [i for i in page_items if i.get('type') == 'node']
+    if nodes_in_page:
+        text += "УЗЛЫ:\n"
+        for item in nodes_in_page:
+            price_str = format_price(item.get('price', 0)) if item.get('price', 0) > 0 else "не установлена"
+            text += f"{item['global_number']}. {item['name']}: нужно {format_number(item['qty'])} шт | цена: {price_str}\n"
+        text += "\n"
+    
+    missing = [i for i in all_items if i.get('price', 0) == 0]
+    session['missing_materials'] = missing
+    
+    logger.info(f"Отправка списка материалов: {len(all_items)} элементов, страница {page + 1}/{total_pages}, длина текста {len(text)} символов")
+    
+    # Отправляем сообщение
+    try:
+        if isinstance(update_obj, CallbackQuery):
+            await update_obj.edit_message_text(
+                text,
+                reply_markup=materials_keyboard(all_items, user_id, page + 1, total_pages, "multi" if is_multi else "single")
+            )
+        elif hasattr(update_obj, 'message') and update_obj.message:
+            await update_obj.message.reply_text(
+                text,
+                reply_markup=materials_keyboard(all_items, user_id, page + 1, total_pages, "multi" if is_multi else "single")
+            )
+        elif hasattr(update_obj, 'reply_text'):
+            await update_obj.reply_text(
                 text,
                 reply_markup=materials_keyboard(all_items, user_id, page + 1, total_pages, "multi" if is_multi else "single")
             )
@@ -371,7 +457,7 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False)
                 text += "МАТЕРИАЛЫ:\n"
                 for item in materials_in_page:
                     price_str = format_price(item.get('price', 0)) if item.get('price', 0) > 0 else "не установлена"
-                    text += f"{item['display_number']}. {item['name']}: нужно {format_number(item['qty'])} шт | цена: {price_str}\n"
+                    text += f"{item['global_number']}. {item['name']}: нужно {format_number(item['qty'])} шт | цена: {price_str}\n"
                 text += "\n"
             
             nodes_in_page = [i for i in page_items if i.get('type') == 'node']
@@ -379,7 +465,7 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False)
                 text += "УЗЛЫ:\n"
                 for item in nodes_in_page:
                     price_str = format_price(item.get('price', 0)) if item.get('price', 0) > 0 else "не установлена"
-                    text += f"{item['display_number']}. {item['name']}: нужно {format_number(item['qty'])} шт | цена: {price_str}\n"
+                    text += f"{item['global_number']}. {item['name']}: нужно {format_number(item['qty'])} шт | цена: {price_str}\n"
                 text += "\n"
             
             if isinstance(update_obj, CallbackQuery):
