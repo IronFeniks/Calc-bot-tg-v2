@@ -1,5 +1,5 @@
 import logging
-from telegram import Update
+from telegram import Update, CallbackQuery
 from telegram.ext import ContextTypes
 from keyboards.calculator import mode_selection_keyboard, cancel_button, back_button, categories_keyboard
 from .instructions import INSTRUCTION_TOPIC, INSTRUCTION_PRIVATE, INSTRUCTION_ADMIN
@@ -298,7 +298,6 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
             session = get_session(user_id)
             session['materials_page'] = page - 1
             # Вызываем _show_materials_list для обновления страницы
-            from .materials import _show_materials_list
             await _show_materials_list(query, user_id, session.get('mode') == 'multi')
         except Exception as e:
             logger.error(f"Ошибка при смене страницы материалов: {e}")
