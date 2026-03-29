@@ -290,11 +290,19 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
     elif action == "continue":
         await calculate_final_result(query, user_id)
         return
-    elif action.startswith("materials_page_"):
-        page = int(action.replace("materials_page_", ""))
-        session = get_session(user_id)
-        session['materials_page'] = page - 1
-        await _show_materials_list(update, user_id, session.get('mode') == 'multi')
+    
+    # ==================== ПАГИНАЦИЯ МАТЕРИАЛОВ ====================
+    if action.startswith("materials_page_"):
+        try:
+            page = int(action.replace("materials_page_", ""))
+            session = get_session(user_id)
+            session['materials_page'] = page - 1
+            # Вызываем _show_materials_list для обновления страницы
+            from .materials import _show_materials_list
+            await _show_materials_list(query, user_id, session.get('mode') == 'multi')
+        except Exception as e:
+            logger.error(f"Ошибка при смене страницы материалов: {e}")
+            await query.edit_message_text("❌ Ошибка при загрузке страницы", reply_markup=cancel_button(user_id))
         return
     
     # ==================== РЕЗУЛЬТАТЫ ====================
