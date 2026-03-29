@@ -163,6 +163,7 @@ async def _calculate_materials(product_code: str, quantity: int, efficiency: flo
     """Внутренняя функция расчёта материалов"""
     product = excel.get_product_by_code(product_code)
     if not product:
+        logger.warning(f"Продукт с кодом {product_code} не найден")
         return [], []
     
     multiplicity = product.get('Кратность', 1)
@@ -173,12 +174,18 @@ async def _calculate_materials(product_code: str, quantity: int, efficiency: flo
     
     def collect_materials(code: str, multiplier: float):
         specs = excel.get_specifications(code)
+        
+        if not specs:
+            logger.warning(f"Нет спецификаций для {code}")
+            return
+        
         for spec in specs:
             child_code = spec['child']
             child_qty = spec['quantity']
             child = excel.get_product_by_code(child_code)
             
             if not child:
+                logger.warning(f"Дочерний продукт {child_code} не найден")
                 continue
             
             child_type = child.get('Тип', '').lower()
@@ -204,6 +211,7 @@ async def _calculate_materials(product_code: str, quantity: int, efficiency: flo
                         'code': child_code
                     }
                 materials_dict[child_name]['qty'] += total_qty
+                logger.debug(f"Материал {child_name}: +{total_qty} (всего {materials_dict[child_name]['qty']})")
             
             elif child_type == 'узел':
                 node_multiplicity = child.get('Кратность', 1)
@@ -232,6 +240,7 @@ async def _calculate_materials(product_code: str, quantity: int, efficiency: flo
                 else:
                     materials_dict[child_name]['qty'] += total_qty
                 
+                logger.debug(f"Узел {child_name}: +{total_qty} (всего {materials_dict[child_name]['qty']})")
                 collect_materials(child_code, total_qty)
     
     collect_materials(product_code, drawings_needed)
@@ -240,6 +249,8 @@ async def _calculate_materials(product_code: str, quantity: int, efficiency: flo
     materials_list.sort(key=lambda x: x['name'])
     for i, item in enumerate(materials_list, 1):
         item['number'] = i
+    
+    logger.info(f"Расчитано материалов: {len(materials_list)}, узлов: {len(node_details)}")
     
     return materials_list, node_details
 
@@ -252,6 +263,15 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False)
     
     all_items = materials + nodes
     all_items.sort(key=lambda x: x.get('number', 0))
+    
+    # Если нет материалов и узлов, показываем сообщение
+    if not all_items:
+        text = "❌ Для выбранного изделия не найдено материалов или узлов в базе данных."
+        if isinstance(update_obj, CallbackQuery):
+            await update_obj.edit_message_text(text, reply_markup=back_button(user_id, "products"))
+        else:
+            await update_obj.message.reply_text(text, reply_markup=back_button(user_id, "products"))
+        return
     
     for i, item in enumerate(all_items, 1):
         item['display_number'] = i
@@ -292,26 +312,39 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False)
     missing = [i for i in all_items if i.get('price', 0) == 0]
     session['missing_materials'] = missing
     
+    # Определяем тип объекта и отправляем сообщение
     if isinstance(update_obj, CallbackQuery):
-        await update_obj.edit_message_text(
-            text,
-            reply_markup=materials_keyboard(all_items, user_id, page + 1, total_pages, "multi" if is_multi else "single")
-        )
-    else:
+        try:
+            await update_obj.edit_message_text(
+                text,
+                reply_markup=materials_keyboard(all_items, user_id, page + 1, total_pages, "multi" if is_multi else "single")
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при редактировании сообщения: {e}")
+            await update_obj.message.reply_text(
+                text,
+                reply_markup=materials_keyboard(all_items, user_id, page + 1, total_pages, "multi" if is_multi else "single")
+            )
+    elif hasattr(update_obj, 'message') and update_obj.message:
         await update_obj.message.reply_text(
             text,
             reply_markup=materials_keyboard(all_items, user_id, page + 1, total_pages, "multi" if is_multi else "single")
         )
+    elif hasattr(update_obj, 'reply_text'):
+        await update_obj.reply_text(
+            text,
+            reply_markup=materials_keyboard(all_items, user_id, page + 1, total_pages, "multi" if is_multi else "single")
+        )
+    else:
+        logger.error(f"Не удалось отправить список материалов: неизвестный тип {type(update_obj)}")
 
 
 async def start_price_input(query, user_id: int):
     """Начало пошагового ввода цен (вызывается из callback)"""
     session = get_session(user_id)
     
-    # Используем унифицированный список для ввода цен
     unified_items = session.get('unified_price_items', [])
     if not unified_items:
-        # Если нет, создаём из materials и nodes
         materials = session.get('materials_list', [])
         nodes = session.get('nodes_list', [])
         unified_items = []
