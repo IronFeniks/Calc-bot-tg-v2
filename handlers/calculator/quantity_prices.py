@@ -2,7 +2,7 @@ import logging
 import math
 from telegram import Update
 from telegram.ext import ContextTypes
-from keyboards.calculator import cancel_button, back_button
+from keyboards.calculator import cancel_button, back_button, calculation_mode_keyboard
 from utils.formatters import parse_int_input, parse_float_input, format_price
 from price_db import get_drawing_price, save_drawing_price
 from .session import get_session
@@ -107,15 +107,36 @@ async def process_drawing_price(update: Update, context: ContextTypes.DEFAULT_TY
     product = session.get('selected_product', {})
     save_drawing_price(product.get('Код', ''), price)
     
-    # Проверяем, есть ли у изделия узлы (для кнопки сравнительного расчёта)
+    # Проверяем, есть ли у изделия узлы
     has_nodes = await check_product_has_nodes(product.get('Код', ''))
-    session['product_has_nodes'] = has_nodes
+    session['has_nodes'] = has_nodes
     
     logger.info(f"✅ Цена чертежа сохранена: {price}, efficiency={efficiency}, tax={tax}, has_nodes={has_nodes}")
     
-    from .materials import calculate_single_materials
-    await calculate_single_materials(update, user_id)
+    # Если есть узлы — показываем выбор режима расчёта
+    if has_nodes:
+        session['step'] = 'mode_selection'
+        await update.message.reply_text(
+            "📊 ВЫБОР РЕЖИМА РАСЧЁТА МАТЕРИАЛОВ\n\n"
+            "Как будем считать?\n\n"
+            "🏭 Как в игре\n"
+            "   Показывает материалы из изделия и узлы.\n"
+            "   Узлы покупаются готовыми, их материалы не суммируются.\n\n"
+            "📊 По материалам\n"
+            "   Суммирует все материалы (из изделия + из узлов).\n"
+            "   Показывает только итоговый список материалов.\n"
+            "   Узлы производятся самостоятельно.\n\n"
+            "Выберите режим:",
+            reply_markup=calculation_mode_keyboard(user_id)
+        )
+    else:
+        # Если нет узлов, сразу переходим к расчёту
+        session['calculation_mode'] = 'buy_nodes'
+        from .materials import calculate_single_materials
+        await calculate_single_materials(update, user_id)
 
+
+# ==================== МНОЖЕСТВЕННЫЙ РЕЖИМ (остаётся без изменений) ====================
 
 async def process_multi_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str):
     """Обработка ввода количества для множественного режима"""
