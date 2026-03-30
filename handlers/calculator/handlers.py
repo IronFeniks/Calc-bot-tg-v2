@@ -1,7 +1,7 @@
 import logging
 from telegram import Update, CallbackQuery
 from telegram.ext import ContextTypes
-from keyboards.calculator import mode_selection_keyboard, cancel_button, back_button, categories_keyboard
+from keyboards.calculator import mode_selection_keyboard, cancel_button, back_button, categories_keyboard, calculation_mode_keyboard
 from .instructions import INSTRUCTION_TOPIC, INSTRUCTION_PRIVATE, INSTRUCTION_ADMIN
 from .session import get_session, clear_session
 from .categories import show_categories, select_category, back_to_categories
@@ -14,11 +14,12 @@ from .quantity_prices import (
 from .materials import (
     start_price_input, auto_prices, input_missing_prices,
     process_price_input_value, process_missing_price_value,
-    _show_materials_list
+    _show_materials_list, calculate_single_materials
 )
 from .results import (
     calculate_final_result, next_detail, prev_detail,
-    back_to_total_summary, back_to_result, same_category, show_explanation
+    back_to_total_summary, back_to_result, same_category, show_explanation,
+    start_comparison, _show_comparison_page
 )
 from excel_handler import get_excel_handler
 from handlers.auth import is_admin
@@ -300,6 +301,21 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
             await query.edit_message_text("❌ Ошибка при загрузке страницы", reply_markup=cancel_button(user_id))
         return
     
+    # ==================== ВЫБОР РЕЖИМА РАСЧЁТА МАТЕРИАЛОВ ====================
+    if action == "mode_buy_nodes":
+        session = get_session(user_id)
+        session['calculation_mode'] = 'buy_nodes'
+        session['step'] = 'materials'
+        await calculate_single_materials(query, user_id)
+        return
+    
+    if action == "mode_produce_nodes":
+        session = get_session(user_id)
+        session['calculation_mode'] = 'produce_nodes'
+        session['step'] = 'materials'
+        await calculate_single_materials(query, user_id)
+        return
+    
     # ==================== РЕЗУЛЬТАТЫ ====================
     if action == "next_detail":
         await next_detail(query, user_id)
@@ -331,7 +347,6 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
     
     # ==================== СРАВНИТЕЛЬНЫЙ РАСЧЁТ ====================
     if action == "start_comparison":
-        from .results import start_comparison
         await start_comparison(query, user_id)
         return
     
@@ -340,7 +355,6 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
         page = session.get('comparison_page', 0) - 1
         if page >= 0:
             session['comparison_page'] = page
-            from .results import _show_comparison_page
             await _show_comparison_page(query, user_id, page)
         return
     
@@ -349,7 +363,6 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
         page = session.get('comparison_page', 0) + 1
         if page <= 2:
             session['comparison_page'] = page
-            from .results import _show_comparison_page
             await _show_comparison_page(query, user_id, page)
         return
     
