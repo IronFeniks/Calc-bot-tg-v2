@@ -2,7 +2,6 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import hashlib
 
 # Словарь для хранения маппинга хэшей к оригинальным данным
-# Формат: {user_id: {hash: original_value}}
 _hash_mapping = {}
 
 def get_hash_mapping(user_id: int) -> dict:
@@ -20,7 +19,6 @@ def clear_hash_mapping(user_id: int):
 def make_callback(user_id: int, action: str, data: str = "") -> str:
     """
     Создаёт callback_data с проверкой длины (Telegram лимит 64 байта)
-    Если данные длинные, заменяет их на хэш и сохраняет маппинг
     """
     if data:
         base = f"user_{user_id}_{action}_{data}"
@@ -30,10 +28,7 @@ def make_callback(user_id: int, action: str, data: str = "") -> str:
     if len(base.encode()) <= 64:
         return base
     
-    # Если длинно, берём хэш от данных
     data_hash = hashlib.md5(data.encode()).hexdigest()[:8]
-    
-    # Сохраняем маппинг для восстановления
     mapping = get_hash_mapping(user_id)
     mapping[data_hash] = data
     
@@ -41,9 +36,7 @@ def make_callback(user_id: int, action: str, data: str = "") -> str:
 
 
 def restore_callback_data(user_id: int, action: str, data_hash: str) -> str:
-    """
-    Восстанавливает оригинальные данные из хэша
-    """
+    """Восстанавливает оригинальные данные из хэша"""
     mapping = get_hash_mapping(user_id)
     if data_hash in mapping:
         return mapping[data_hash]
@@ -51,20 +44,18 @@ def restore_callback_data(user_id: int, action: str, data_hash: str) -> str:
 
 
 def clear_user_mapping(user_id: int):
-    """Очищает маппинг для пользователя (при завершении сессии)"""
+    """Очищает маппинг для пользователя"""
     clear_hash_mapping(user_id)
 
 
 # ==================== БАЗОВЫЕ КНОПКИ ====================
 
 def cancel_button(user_id: int) -> InlineKeyboardMarkup:
-    """Кнопка отмены"""
     keyboard = [[InlineKeyboardButton("❌ Отмена", callback_data=make_callback(user_id, "cancel"))]]
     return InlineKeyboardMarkup(keyboard)
 
 
 def back_button(user_id: int, to: str) -> InlineKeyboardMarkup:
-    """Кнопка назад с указанием куда"""
     keyboard = [
         [InlineKeyboardButton("🔙 Назад", callback_data=make_callback(user_id, f"back_to_{to}"))],
         [InlineKeyboardButton("❌ Отмена", callback_data=make_callback(user_id, "cancel"))]
@@ -73,9 +64,6 @@ def back_button(user_id: int, to: str) -> InlineKeyboardMarkup:
 
 
 def navigation_buttons(user_id: int, page: int, total_pages: int, action: str) -> list:
-    """
-    Создаёт строку навигационных кнопок
-    """
     nav_row = []
     if page > 1:
         nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, action, str(page - 1))))
@@ -88,7 +76,6 @@ def navigation_buttons(user_id: int, page: int, total_pages: int, action: str) -
 # ==================== ГЛАВНОЕ МЕНЮ ====================
 
 def mode_selection_keyboard(user_id: int) -> InlineKeyboardMarkup:
-    """Клавиатура выбора режима расчёта"""
     keyboard = [
         [InlineKeyboardButton("🧮 Одиночный расчёт", callback_data=make_callback(user_id, "single_mode"))],
         [InlineKeyboardButton("📊 Множественный расчёт", callback_data=make_callback(user_id, "multi_mode"))],
@@ -97,10 +84,21 @@ def mode_selection_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+# ==================== ВЫБОР РЕЖИМА РАСЧЁТА МАТЕРИАЛОВ ====================
+
+def calculation_mode_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура выбора режима расчёта (покупка узлов / производство узлов)"""
+    keyboard = [
+        [InlineKeyboardButton("🏭 Как в игре", callback_data=make_callback(user_id, "mode_buy_nodes"))],
+        [InlineKeyboardButton("📊 По материалам", callback_data=make_callback(user_id, "mode_produce_nodes"))],
+        [InlineKeyboardButton("❌ Отмена", callback_data=make_callback(user_id, "cancel"))]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 # ==================== КАТЕГОРИИ ====================
 
 def categories_keyboard(categories: list, user_id: int, page: int, total_pages: int) -> InlineKeyboardMarkup:
-    """Клавиатура списка категорий"""
     keyboard = []
     
     for cat in categories:
@@ -122,12 +120,10 @@ def categories_keyboard(categories: list, user_id: int, page: int, total_pages: 
 # ==================== ИЗДЕЛИЯ (ОДИНОЧНЫЙ РЕЖИМ) ====================
 
 def products_keyboard(products: list, user_id: int, page: int, total_pages: int) -> InlineKeyboardMarkup:
-    """Клавиатура списка изделий для одиночного режима"""
     keyboard = []
     
     for p in products:
         name = p['name'][:30] + "..." if len(p['name']) > 30 else p['name']
-        # Передаём полное название, make_callback сам обработает длину
         keyboard.append([InlineKeyboardButton(
             f"{name}",
             callback_data=make_callback(user_id, "select_product", p['name'])
@@ -146,13 +142,11 @@ def products_keyboard(products: list, user_id: int, page: int, total_pages: int)
 # ==================== ИЗДЕЛИЯ (МНОЖЕСТВЕННЫЙ РЕЖИМ) ====================
 
 def multi_select_products_keyboard(products: list, user_id: int, page: int, total_pages: int, selected: set) -> InlineKeyboardMarkup:
-    """Клавиатура списка изделий с чекбоксами для множественного режима"""
     keyboard = []
     
     for p in products:
         name = p['name'][:30] + "..." if len(p['name']) > 30 else p['name']
         checkbox = "☑️" if name in selected else "☐"
-        # Передаём полное название, make_callback сам обработает длину
         keyboard.append([InlineKeyboardButton(
             f"{checkbox} {name}",
             callback_data=make_callback(user_id, "toggle_product", p['name'])
@@ -172,7 +166,6 @@ def multi_select_products_keyboard(products: list, user_id: int, page: int, tota
 # ==================== МАТЕРИАЛЫ ====================
 
 def materials_keyboard(materials: list, user_id: int, page: int, total_pages: int, mode: str = "single") -> InlineKeyboardMarkup:
-    """Клавиатура списка материалов"""
     keyboard = []
     
     nav_row = navigation_buttons(user_id, page, total_pages, "materials_page")
@@ -193,7 +186,6 @@ def materials_keyboard(materials: list, user_id: int, page: int, total_pages: in
 
 
 def missing_prices_keyboard(user_id: int) -> InlineKeyboardMarkup:
-    """Клавиатура для выбора действий при отсутствии цен"""
     keyboard = [
         [InlineKeyboardButton("▶️ Продолжить с имеющимися ценами", callback_data=make_callback(user_id, "continue"))],
         [InlineKeyboardButton("✏️ Ввести недостающие", callback_data=make_callback(user_id, "price_input_missing"))],
@@ -205,8 +197,8 @@ def missing_prices_keyboard(user_id: int) -> InlineKeyboardMarkup:
 # ==================== РЕЗУЛЬТАТЫ ====================
 
 def result_keyboard(user_id: int, is_multi: bool = False, 
-                    current_index: int = 0, total_count: int = 0) -> InlineKeyboardMarkup:
-    """Клавиатура для страницы результатов"""
+                    current_index: int = 0, total_count: int = 0,
+                    show_comparison: bool = False) -> InlineKeyboardMarkup:
     keyboard = []
     
     if is_multi and total_count > 0:
@@ -221,6 +213,9 @@ def result_keyboard(user_id: int, is_multi: bool = False,
         if current_index != -1:
             keyboard.append([InlineKeyboardButton("📊 Общая сводка", callback_data=make_callback(user_id, "total_summary"))])
     
+    if show_comparison:
+        keyboard.append([InlineKeyboardButton("🔄 Сравнительный расчёт", callback_data=make_callback(user_id, "start_comparison"))])
+    
     keyboard.append([InlineKeyboardButton("🔄 Новый расчёт в этой категории", callback_data=make_callback(user_id, "same_category"))])
     keyboard.append([InlineKeyboardButton("📖 Пояснить", callback_data=make_callback(user_id, "explain"))])
     keyboard.append([InlineKeyboardButton("❌ Завершить", callback_data=make_callback(user_id, "cancel"))])
@@ -228,23 +223,7 @@ def result_keyboard(user_id: int, is_multi: bool = False,
     return InlineKeyboardMarkup(keyboard)
 
 
-def explanation_keyboard(user_id: int) -> InlineKeyboardMarkup:
-    """Клавиатура для возврата из пояснения"""
-    keyboard = [
-        [InlineKeyboardButton("🔙 Назад к результатам", callback_data=make_callback(user_id, "back_to_result"))]
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-
-def help_keyboard(user_id: int) -> InlineKeyboardMarkup:
-    """Клавиатура для возврата из помощи"""
-    keyboard = [
-        [InlineKeyboardButton("🔙 Назад", callback_data=make_callback(user_id, "back_to_start"))]
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
 def comparison_keyboard(user_id: int, has_prev: bool, has_next: bool) -> InlineKeyboardMarkup:
-    """Клавиатура для навигации по страницам сравнения"""
     keyboard = []
     nav_row = []
     
@@ -261,30 +240,15 @@ def comparison_keyboard(user_id: int, has_prev: bool, has_next: bool) -> InlineK
     return InlineKeyboardMarkup(keyboard)
 
 
-def result_keyboard(user_id: int, is_multi: bool = False, 
-                    current_index: int = 0, total_count: int = 0,
-                    show_comparison: bool = False) -> InlineKeyboardMarkup:
-    """Клавиатура для страницы результатов (с кнопкой сравнения)"""
-    keyboard = []
-    
-    if is_multi and total_count > 0:
-        nav_row = []
-        if current_index > 0:
-            nav_row.append(InlineKeyboardButton("◀️ Предыдущее", callback_data=make_callback(user_id, "prev_detail")))
-        if current_index < total_count - 1:
-            nav_row.append(InlineKeyboardButton("Следующее ▶️", callback_data=make_callback(user_id, "next_detail")))
-        if nav_row:
-            keyboard.append(nav_row)
-        
-        if current_index != -1:
-            keyboard.append([InlineKeyboardButton("📊 Общая сводка", callback_data=make_callback(user_id, "total_summary"))])
-    
-    # Кнопка сравнительного расчёта (только если есть узлы)
-    if show_comparison:
-        keyboard.append([InlineKeyboardButton("🔄 Сравнительный расчёт", callback_data=make_callback(user_id, "start_comparison"))])
-    
-    keyboard.append([InlineKeyboardButton("🔄 Новый расчёт в этой категории", callback_data=make_callback(user_id, "same_category"))])
-    keyboard.append([InlineKeyboardButton("📖 Пояснить", callback_data=make_callback(user_id, "explain"))])
-    keyboard.append([InlineKeyboardButton("❌ Завершить", callback_data=make_callback(user_id, "cancel"))])
-    
+def explanation_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    keyboard = [
+        [InlineKeyboardButton("🔙 Назад к результатам", callback_data=make_callback(user_id, "back_to_result"))]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def help_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    keyboard = [
+        [InlineKeyboardButton("🔙 Назад", callback_data=make_callback(user_id, "back_to_start"))]
+    ]
     return InlineKeyboardMarkup(keyboard)
