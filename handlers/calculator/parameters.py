@@ -128,7 +128,7 @@ async def process_multi_tax(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     session['multi_products'] = products
     session['current_product_index'] = 0
     session['multi_products_data'] = []
-    session['step'] = 'multi_quantity'  # Устанавливаем шаг для ввода количества первого изделия
+    session['step'] = 'multi_quantity'
     
     logger.info(f"✅ Налог сохранён для множественного режима: {tax}, загружено {len(products)} изделий")
     
@@ -143,7 +143,6 @@ async def process_next_multi_product(update, user_id: int):
     total = len(products)
     
     if index >= total:
-        # Все параметры введены — переходим к расчёту
         logger.info(f"Все {total} изделий обработаны, переход к расчёту материалов")
         from .materials import calculate_multi_materials
         await calculate_multi_materials(update, user_id)
@@ -153,9 +152,6 @@ async def process_next_multi_product(update, user_id: int):
     session['current_multi_product'] = product
     
     multiplicity = product.get('Кратность', 1)
-    
-    # Убеждаемся, что шаг установлен правильно
-    session['step'] = 'multi_quantity'
     
     logger.info(f"📦 Запрос количества для {product['Наименование']} ({index + 1}/{total})")
     
@@ -167,3 +163,14 @@ async def process_next_multi_product(update, user_id: int):
         f"(должно быть кратно {multiplicity})",
         reply_markup=cancel_button(user_id)
     )
+
+
+async def check_product_has_nodes(product_code: str) -> bool:
+    """Проверяет, есть ли у изделия узлы в составе"""
+    excel = get_excel_handler()
+    specs = excel.get_specifications(product_code)
+    for spec in specs:
+        child = excel.get_product_by_code(spec['child'])
+        if child and child.get('Тип', '').lower() == 'узел':
+            return True
+    return False
