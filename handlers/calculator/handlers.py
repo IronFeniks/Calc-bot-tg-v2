@@ -183,33 +183,6 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
         lock.refresh(user_id)
     
     action = data.replace(f"user_{user_id}_", "")
-
-    # В блоке результатов добавить:
-if action == "start_comparison":
-    from .results import start_comparison
-    await start_comparison(query, user_id)
-    return
-
-if action == "comparison_prev":
-    session = get_session(user_id)
-    page = session.get('comparison_page', 0) - 1
-    session['comparison_page'] = page
-    from .results import _show_comparison_page
-    await _show_comparison_page(query, user_id, page)
-    return
-
-if action == "comparison_next":
-    session = get_session(user_id)
-    page = session.get('comparison_page', 0) + 1
-    session['comparison_page'] = page
-    from .results import _show_comparison_page
-    await _show_comparison_page(query, user_id, page)
-    return
-
-if action == "new_calculation":
-    clear_session(user_id)
-    await start_calculator(update, context, is_topic, lock)
-    return
     
     # ==================== ГЛОБАЛЬНЫЕ ====================
     if action == "cancel":
@@ -217,12 +190,10 @@ if action == "new_calculation":
         return
     
     if action == "noop":
-        # Пустая кнопка для пагинации — ничего не делаем
         return
     
     # ==================== ВЫБОР РЕЖИМА (для админа в личке) ====================
     if action == "mode_calculator":
-        # Переход в режим калькулятора
         session = get_session(user_id)
         session['mode'] = 'single'
         session['step'] = 'categories'
@@ -247,7 +218,6 @@ if action == "new_calculation":
         return
     
     if action == "mode_admin":
-        # Переход в режим администрирования
         from handlers.admin import start_admin
         await start_admin(update, context)
         return
@@ -324,7 +294,6 @@ if action == "new_calculation":
             page = int(action.replace("materials_page_", ""))
             session = get_session(user_id)
             session['materials_page'] = page - 1
-            # Вызываем _show_materials_list для обновления страницы
             await _show_materials_list(query, user_id, session.get('mode') == 'multi')
         except Exception as e:
             logger.error(f"Ошибка при смене страницы материалов: {e}")
@@ -332,63 +301,60 @@ if action == "new_calculation":
         return
     
     # ==================== РЕЗУЛЬТАТЫ ====================
-if action == "next_detail":
-    await next_detail(query, user_id)
-    return
-elif action == "prev_detail":
-    await prev_detail(query, user_id)
-    return
-elif action == "total_summary":
-    await back_to_total_summary(query, user_id)
-    return
-elif action == "back_to_result":
-    await back_to_result(query, user_id)
-    return
-elif action == "same_category":
-    await same_category(query, user_id)
-    return
-elif action == "explain":
-    await show_explanation(query, user_id)
-    return
-elif action == "back_to_products":
-    await show_products(query, user_id, 1)
-    return
-elif action == "back_to_multi_select":
-    await show_multi_products(query, user_id, 1)
-    return
-elif action == "back_to_start":
-    await start_calculator(update, context, is_topic, lock)
-    return
-
-# ==================== СРАВНИТЕЛЬНЫЙ РАСЧЁТ ====================
-if action == "start_comparison":
-    from .results import start_comparison
-    await start_comparison(query, user_id)
-    return
-
-if action == "comparison_prev":
-    session = get_session(user_id)
-    page = session.get('comparison_page', 0) - 1
-    if page >= 0:
-        session['comparison_page'] = page
-        from .results import _show_comparison_page
-        await _show_comparison_page(query, user_id, page)
-    return
-
-if action == "comparison_next":
-    session = get_session(user_id)
-    page = session.get('comparison_page', 0) + 1
-    if page <= 2:
-        session['comparison_page'] = page
-        from .results import _show_comparison_page
-        await _show_comparison_page(query, user_id, page)
-    return
-
-if action == "new_calculation":
-    clear_session(user_id)
-    await start_calculator(update, context, is_topic, lock)
-    return
-        # Возврат к началу из помощи
+    if action == "next_detail":
+        await next_detail(query, user_id)
+        return
+    elif action == "prev_detail":
+        await prev_detail(query, user_id)
+        return
+    elif action == "total_summary":
+        await back_to_total_summary(query, user_id)
+        return
+    elif action == "back_to_result":
+        await back_to_result(query, user_id)
+        return
+    elif action == "same_category":
+        await same_category(query, user_id)
+        return
+    elif action == "explain":
+        await show_explanation(query, user_id)
+        return
+    elif action == "back_to_products":
+        await show_products(query, user_id, 1)
+        return
+    elif action == "back_to_multi_select":
+        await show_multi_products(query, user_id, 1)
+        return
+    elif action == "back_to_start":
+        await start_calculator(update, context, is_topic, lock)
+        return
+    
+    # ==================== СРАВНИТЕЛЬНЫЙ РАСЧЁТ ====================
+    if action == "start_comparison":
+        from .results import start_comparison
+        await start_comparison(query, user_id)
+        return
+    
+    if action == "comparison_prev":
+        session = get_session(user_id)
+        page = session.get('comparison_page', 0) - 1
+        if page >= 0:
+            session['comparison_page'] = page
+            from .results import _show_comparison_page
+            await _show_comparison_page(query, user_id, page)
+        return
+    
+    if action == "comparison_next":
+        session = get_session(user_id)
+        page = session.get('comparison_page', 0) + 1
+        if page <= 2:
+            session['comparison_page'] = page
+            from .results import _show_comparison_page
+            await _show_comparison_page(query, user_id, page)
+        return
+    
+    if action == "new_calculation":
+        clear_session(user_id)
         await start_calculator(update, context, is_topic, lock)
         return
     
