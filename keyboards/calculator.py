@@ -242,3 +242,49 @@ def help_keyboard(user_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🔙 Назад", callback_data=make_callback(user_id, "back_to_start"))]
     ]
     return InlineKeyboardMarkup(keyboard)
+
+def comparison_keyboard(user_id: int, has_prev: bool, has_next: bool) -> InlineKeyboardMarkup:
+    """Клавиатура для навигации по страницам сравнения"""
+    keyboard = []
+    nav_row = []
+    
+    if has_prev:
+        nav_row.append(InlineKeyboardButton("◀️ Предыдущая", callback_data=make_callback(user_id, "comparison_prev")))
+    if has_next:
+        nav_row.append(InlineKeyboardButton("Следующая ▶️", callback_data=make_callback(user_id, "comparison_next")))
+    if nav_row:
+        keyboard.append(nav_row)
+    
+    keyboard.append([InlineKeyboardButton("🔄 Новый расчёт", callback_data=make_callback(user_id, "new_calculation"))])
+    keyboard.append([InlineKeyboardButton("❌ Завершить", callback_data=make_callback(user_id, "cancel"))])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+
+def result_keyboard(user_id: int, is_multi: bool = False, 
+                    current_index: int = 0, total_count: int = 0,
+                    show_comparison: bool = False) -> InlineKeyboardMarkup:
+    """Клавиатура для страницы результатов (с кнопкой сравнения)"""
+    keyboard = []
+    
+    if is_multi and total_count > 0:
+        nav_row = []
+        if current_index > 0:
+            nav_row.append(InlineKeyboardButton("◀️ Предыдущее", callback_data=make_callback(user_id, "prev_detail")))
+        if current_index < total_count - 1:
+            nav_row.append(InlineKeyboardButton("Следующее ▶️", callback_data=make_callback(user_id, "next_detail")))
+        if nav_row:
+            keyboard.append(nav_row)
+        
+        if current_index != -1:
+            keyboard.append([InlineKeyboardButton("📊 Общая сводка", callback_data=make_callback(user_id, "total_summary"))])
+    
+    # Кнопка сравнительного расчёта (только если есть узлы)
+    if show_comparison:
+        keyboard.append([InlineKeyboardButton("🔄 Сравнительный расчёт", callback_data=make_callback(user_id, "start_comparison"))])
+    
+    keyboard.append([InlineKeyboardButton("🔄 Новый расчёт в этой категории", callback_data=make_callback(user_id, "same_category"))])
+    keyboard.append([InlineKeyboardButton("📖 Пояснить", callback_data=make_callback(user_id, "explain"))])
+    keyboard.append([InlineKeyboardButton("❌ Завершить", callback_data=make_callback(user_id, "cancel"))])
+    
+    return InlineKeyboardMarkup(keyboard)
