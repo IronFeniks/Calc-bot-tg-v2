@@ -2,29 +2,27 @@ import logging
 import math
 from telegram import Update, CallbackQuery
 from telegram.ext import ContextTypes
-from keyboards.calculator import result_keyboard, explanation_keyboard, cancel_button
+from keyboards.calculator import result_keyboard, explanation_keyboard, cancel_button, comparison_keyboard
 from utils.formatters import (
     format_number, format_price, format_material_result_line,
     format_node_result_line, format_leftover_line, format_total_result, format_explanation
 )
 from utils.calculations import calculate_tax
-from .session import get_session, reset_session_for_new_calculation
+from .session import get_session, clear_session
+from .parameters import check_product_has_nodes
 
 logger = logging.getLogger(__name__)
 
 
-async def _send_result_message(update_obj, text: str, reply_markup, parse_mode: str = None):
-    """
-    Универсальная функция отправки результата
-    """
+async def _send_result_message(update_obj, text: str, reply_markup, parse_mode: str = 'Markdown'):
+    """Универсальная функция отправки результата"""
     if isinstance(update_obj, CallbackQuery):
         try:
             await update_obj.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
         except Exception as e:
             logger.error(f"Ошибка при редактировании сообщения: {e}")
-            # Если не удалось отредактировать, отправляем новое
             await update_obj.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
-    elif hasattr(update_obj, 'message') and hasattr(update_obj.message, 'reply_text'):
+    elif hasattr(update_obj, 'message') and update_obj.message:
         await update_obj.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
     elif hasattr(update_obj, 'reply_text'):
         await update_obj.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
@@ -32,19 +30,26 @@ async def _send_result_message(update_obj, text: str, reply_markup, parse_mode: 
         logger.error(f"Не удалось отправить результат: неизвестный тип {type(update_obj)}")
 
 
-async def calculate_final_result(update_obj, user_id: int):
+async def calculate_final_result(update_obj, user_id: int, is_comparison: bool = False):
     """Финальный расчёт и вывод результатов"""
     session = get_session(user_id)
     mode = session.get('mode')
     tax_rate = session.get('tax', 0)
+    calculation_mode = session.get('calculation_mode', 'buy_nodes')
+    
+    # Сохраняем результаты первого расчёта для сравнения
+    if not is_comparison and session.get('first_calculation_completed') is None:
+        session['first_calculation_mode'] = calculation_mode
+        session['first_calculation_tax'] = tax_rate
+        session['first_calculation_completed'] = True
     
     if mode == 'single':
-        await _calculate_single_result(update_obj, user_id, tax_rate)
+        await _calculate_single_result(update_obj, user_id, tax_rate, calculation_mode, is_comparison)
     else:
-        await _calculate_multi_result(update_obj, user_id, tax_rate)
+        await _calculate_multi_result(update_obj, user_id, tax_rate, calculation_mode, is_comparison)
 
 
-async def _calculate_single_result(update_obj, user_id: int, tax_rate: float):
+async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, calculation_mode: str, is_comparison: bool):
     """Расчёт и вывод результата для одиночного режима"""
     session = get_session(user_id)
     product = session.get('selected_product', {})
@@ -53,6 +58,7 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float):
     drawing_price = session.get('drawing_price', 0)
     materials_list = session.get('materials_list', [])
     nodes_list = session.get('nodes_list', [])
+    drawings_list = session.get('drawings_list', [])
     drawings_needed = session.get('single_product_detail', {}).get('drawings_needed', 1)
     
     # Расчёт стоимости материалов
@@ -70,13 +76,26 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float):
         prod_price = 0
     production_cost = prod_price * drawings_needed
     
-    # Расчёт стоимости чертежей
+    # Расчёт стоимости чертежа изделия
     drawings_cost = drawing_price * drawings_needed
-    node_drawings_cost = sum(node.get('total_cost', 0) for node in nodes_list)
-    drawings_cost += node_drawings_cost
     
-    # Итоговые расчёты
-    total_cost = materials_cost + production_cost + drawings_cost
+    # Расчёт в зависимости от режима
+    nodes_cost = 0
+    node_production_cost = 0
+    
+    if calculation_mode == 'buy_nodes':
+        # Покупка узлов
+        for node in nodes_list:
+            node_cost = node['needed_qty'] * node.get('price', 0)
+            nodes_cost += node_cost
+    else:
+        # Производство узлов
+        for node in nodes_list:
+            node_production_cost += node.get('total_cost', 0)
+        for drawing in drawings_list:
+            drawings_cost += drawing['qty'] * drawing.get('price', 0)
+    
+    total_cost = materials_cost + production_cost + drawings_cost + nodes_cost + node_production_cost
     revenue = market_price * quantity
     profit_before_tax = revenue - total_cost
     tax = calculate_tax(profit_before_tax, tax_rate)
@@ -85,12 +104,14 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float):
     per_unit_profit = profit_after_tax / quantity if quantity > 0 else 0
     
     # Формируем текст
+    mode_name = "покупка узлов" if calculation_mode == 'buy_nodes' else "производство узлов"
     text = f"📊 РЕЗУЛЬТАТЫ РАСЧЕТА\n\n"
     text += f"🏷️ ИЗДЕЛИЕ: {product.get('Наименование', '')}\n"
     text += f"📂 КАТЕГОРИЯ: {product.get('Категории', '')}\n"
     text += f"📦 КОЛИЧЕСТВО: {format_number(quantity)} шт\n"
     text += f"⚙️ ЭФФЕКТИВНОСТЬ: {session.get('efficiency', 150)}%\n"
-    text += f"🏛️ НАЛОГ: {tax_rate}%\n\n"
+    text += f"🏛️ НАЛОГ: {tax_rate}%\n"
+    text += f"🎯 РЕЖИМ: {mode_name}\n\n"
     text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     
     # Материалы
@@ -100,277 +121,227 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float):
             text += format_material_result_line(i, m['name'], m['qty'], m.get('price', 0), m.get('cost', 0)) + "\n"
         text += "\n"
     
-    # Узлы
-    if nodes_list:
-        text += "🔩 УЗЛЫ И ЧЕРТЕЖИ:\n"
+    # Узлы или чертежи
+    if calculation_mode == 'buy_nodes' and nodes_list:
+        text += "🔩 УЗЛЫ (покупка):\n"
         for i, node in enumerate(nodes_list, 1):
-            leftover = node.get('leftover', 0)
-            text += format_node_result_line(
-                i, node['name'], node['needed_qty'], 
-                node['drawings'], node.get('multiplicity', 1), 
-                leftover if leftover > 0 else None
-            ) + "\n"
+            text += f"{i}. {node['name']}: нужно {format_number(node['needed_qty'])} шт | цена: {format_price(node.get('price', 0))}\n"
+        text += "\n"
+    elif not calculation_mode == 'buy_nodes' and drawings_list:
+        text += "📄 ЧЕРТЕЖИ УЗЛОВ:\n"
+        for i, drawing in enumerate(drawings_list, 1):
+            text += f"{i}. {drawing['name']}: нужно {format_number(drawing['qty'])} чертежей | цена: {format_price(drawing.get('price', 0))}\n"
         text += "\n"
         
-        leftovers = [n for n in nodes_list if n.get('leftover', 0) > 0]
-        if leftovers:
-            text += "📦 ОСТАТКИ УЗЛОВ (неиспользованные):\n"
-            for node in leftovers:
-                text += format_leftover_line(node['name'], node['leftover']) + "\n"
+        if node_production_cost > 0:
+            text += "🏭 ПРОИЗВОДСТВО УЗЛОВ (фиксированная стоимость):\n"
+            for node in nodes_list:
+                text += f"• {node['name']}: {format_number(node['drawings'])} чертежей × {format_price(node['price_per_drawing'])} = {format_price(node['total_cost'])}\n"
             text += "\n"
     
     text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     
     text += format_total_result(
-        materials_cost, production_cost, drawings_cost,
+        materials_cost, production_cost, drawings_cost + nodes_cost + node_production_cost,
         total_cost, revenue, profit_before_tax, tax, profit_after_tax,
         per_unit_cost, per_unit_profit
     )
     
-    session['last_result_text'] = text
-    session['last_result_keyboard'] = result_keyboard(user_id, is_multi=False)
+    # Сохраняем результат
+    if not is_comparison:
+        session['first_calculation_result'] = text
+        session['first_calculation_data'] = {
+            'materials_cost': materials_cost,
+            'production_cost': production_cost,
+            'drawings_cost': drawings_cost,
+            'nodes_cost': nodes_cost,
+            'node_production_cost': node_production_cost,
+            'total_cost': total_cost,
+            'revenue': revenue,
+            'profit_before_tax': profit_before_tax,
+            'tax': tax,
+            'profit_after_tax': profit_after_tax
+        }
+        session['first_calculation_mode_name'] = mode_name
+        session['product_name'] = product.get('Наименование', '')
+        session['quantity'] = quantity
+        session['has_nodes'] = await check_product_has_nodes(product.get('Код', ''))
     
-    await _send_result_message(update_obj, text, result_keyboard(user_id, is_multi=False), parse_mode='Markdown')
+    # Определяем, показывать ли кнопку сравнения
+    show_comparison = not is_comparison and session.get('has_nodes', False)
+    
+    await _send_result_message(
+        update_obj,
+        text,
+        result_keyboard(user_id, is_multi=False, show_comparison=show_comparison),
+        parse_mode='Markdown'
+    )
 
 
-async def _calculate_multi_result(update_obj, user_id: int, tax_rate: float):
-    """Расчёт и вывод результата для множественного режима"""
+async def start_comparison(query, user_id: int):
+    """Начать сравнительный расчёт"""
     session = get_session(user_id)
-    products_data = session.get('products_with_details', [])
-    materials_list = session.get('materials_list', [])
-    nodes_list = session.get('nodes_list', [])
     
-    # Расчёт общей сводки
-    total_materials_cost = 0
-    total_production_cost = 0
-    total_drawings_cost = 0
-    total_revenue = 0
+    # Сохраняем, что мы в режиме сравнения
+    session['comparison_mode'] = True
     
-    for data in products_data:
-        product = data['product']
-        quantity = data['quantity']
-        market_price = data['market_price']
-        drawing_price = data['drawing_price']
-        drawings_needed = data.get('drawings_needed', 1)
-        
-        # Производство
-        prod_price_str = product.get('Цена производства', '0 ISK')
-        try:
-            prod_price = float(str(prod_price_str).replace(' ISK', '').replace(' ', ''))
-        except:
-            prod_price = 0
-        total_production_cost += prod_price * drawings_needed
-        
-        # Чертежи
-        total_drawings_cost += drawing_price * drawings_needed
-        
-        # Выручка
-        total_revenue += market_price * quantity
+    # Определяем противоположный режим
+    current_mode = session.get('calculation_mode', 'buy_nodes')
+    opposite_mode = 'produce_nodes' if current_mode == 'buy_nodes' else 'buy_nodes'
     
-    # Стоимость материалов
-    for m in materials_list:
-        cost = m['qty'] * m.get('price', 0)
-        m['cost'] = cost
-        total_materials_cost += cost
+    # Сохраняем противоположный режим
+    session['comparison_target_mode'] = opposite_mode
     
-    # Стоимость чертежей узлов
-    node_drawings_cost = sum(node.get('total_cost', 0) for node in nodes_list)
-    total_drawings_cost += node_drawings_cost
-    
-    # Итоговые расчёты
-    total_cost = total_materials_cost + total_production_cost + total_drawings_cost
-    profit_before_tax = total_revenue - total_cost
-    tax = calculate_tax(profit_before_tax, tax_rate)
-    profit_after_tax = profit_before_tax - tax
-    
-    session['multi_result'] = {
-        'total_materials_cost': total_materials_cost,
-        'total_production_cost': total_production_cost,
-        'total_drawings_cost': total_drawings_cost,
-        'total_cost': total_cost,
-        'total_revenue': total_revenue,
-        'profit_before_tax': profit_before_tax,
-        'tax': tax,
-        'profit_after_tax': profit_after_tax,
-        'materials_list': materials_list,
-        'nodes_list': nodes_list
-    }
-    session['products_with_details'] = products_data
-    session['result_page'] = 0
-    
-    await _show_total_summary(update_obj, user_id, tax_rate)
-
-
-async def _show_total_summary(update_obj, user_id: int, tax_rate: float = None):
-    """Показывает общую сводку для множественного режима"""
-    session = get_session(user_id)
-    result = session.get('multi_result', {})
-    products_data = session.get('products_with_details', [])
-    
-    if tax_rate is None:
-        tax_rate = session.get('tax', 0)
-    
-    materials_list = result.get('materials_list', [])
-    nodes_list = result.get('nodes_list', [])
-    
-    product_names = [p['product']['Наименование'] for p in products_data]
-    text = f"📊 РЕЗУЛЬТАТЫ РАСЧЁТА (ОБЩАЯ СВОДКА)\n\n"
-    text += f"Режим: множественный расчёт\n"
-    text += f"Изделия: {', '.join(product_names)} ({len(products_data)} шт)\n"
-    text += f"Эффективность: {session.get('efficiency', 150)}%\n"
-    text += f"Налог: {tax_rate}%\n\n"
-    text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    
-    if materials_list:
-        text += "📦 МАТЕРИАЛЫ (ОБЩИЕ):\n"
-        for i, m in enumerate(materials_list, 1):
-            text += format_material_result_line(i, m['name'], m['qty'], m.get('price', 0), m.get('cost', 0)) + "\n"
-        text += "\n"
-    
-    if nodes_list:
-        text += "🔩 УЗЛЫ И ЧЕРТЕЖИ (ОБЩИЕ):\n"
-        for i, node in enumerate(nodes_list, 1):
-            text += format_node_result_line(
-                i, node['name'], node['needed_qty'], 
-                node['drawings'], node.get('multiplicity', 1)
-            ) + "\n"
-        text += "\n"
-    
-    text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    
-    text += format_total_result(
-        result.get('total_materials_cost', 0),
-        result.get('total_production_cost', 0),
-        result.get('total_drawings_cost', 0),
-        result.get('total_cost', 0),
-        result.get('total_revenue', 0),
-        result.get('profit_before_tax', 0),
-        result.get('tax', 0),
-        result.get('profit_after_tax', 0)
+    # Показываем сообщение о начале сравнения
+    await query.edit_message_text(
+        f"🔄 Запуск сравнительного расчёта\n\n"
+        f"Текущий режим: {session.get('first_calculation_mode_name', 'неизвестен')}\n"
+        f"Будет выполнен расчёт в режиме: {'производство узлов' if opposite_mode == 'produce_nodes' else 'покупка узлов'}\n\n"
+        f"Пожалуйста, введите цены для нового режима.",
+        reply_markup=cancel_button(user_id)
     )
     
-    session['last_result_text'] = text
-    session['last_result_keyboard'] = result_keyboard(user_id, is_multi=True, current_index=-1, total_count=len(products_data))
+    # Запускаем расчёт в противоположном режиме
+    from .quantity_prices import process_drawing_price
+    # Имитируем вызов с уже введёнными параметрами
+    session['calculation_mode'] = opposite_mode
+    session['step'] = 'materials'
     
-    await _send_result_message(update_obj, text, result_keyboard(user_id, is_multi=True, current_index=-1, total_count=len(products_data)), parse_mode='Markdown')
+    # Пересчитываем материалы в новом режиме
+    from .materials import calculate_single_materials
+    await calculate_single_materials(query, user_id)
+
+
+async def show_comparison_results(query, user_id: int):
+    """Показать результаты сравнительного расчёта (3 страницы)"""
+    session = get_session(user_id)
+    
+    # Сохраняем второй расчёт
+    session['second_calculation_result'] = session.get('last_result_text', '')
+    session['second_calculation_mode_name'] = session.get('calculation_mode_name', '')
+    session['second_calculation_data'] = session.get('last_calculation_data', {})
+    
+    # Показываем первую страницу (результаты первого расчёта)
+    session['comparison_page'] = 0
+    await _show_comparison_page(query, user_id, 0)
+
+
+async def _show_comparison_page(query, user_id: int, page: int):
+    """Показать страницу сравнения"""
+    session = get_session(user_id)
+    
+    if page == 0:
+        # Страница 1: результаты первого расчёта
+        text = session.get('first_calculation_result', '')
+        has_prev = False
+        has_next = True
+        title = "1/3"
+    elif page == 1:
+        # Страница 2: результаты второго расчёта
+        text = session.get('second_calculation_result', '')
+        has_prev = True
+        has_next = True
+        title = "2/3"
+    else:
+        # Страница 3: сравнительный анализ
+        text = await _format_comparison_analysis(user_id)
+        has_prev = True
+        has_next = False
+        title = "3/3"
+    
+    await query.edit_message_text(
+        f"{text}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📄 Страница {title}",
+        reply_markup=comparison_keyboard(user_id, has_prev, has_next),
+        parse_mode='Markdown'
+    )
+
+
+async def _format_comparison_analysis(user_id: int) -> str:
+    """Форматирует страницу сравнительного анализа"""
+    session = get_session(user_id)
+    
+    data1 = session.get('first_calculation_data', {})
+    data2 = session.get('second_calculation_data', {})
+    mode1 = session.get('first_calculation_mode_name', 'Режим 1')
+    mode2 = session.get('second_calculation_mode_name', 'Режим 2')
+    product_name = session.get('product_name', '')
+    quantity = session.get('quantity', 0)
+    
+    # Расчёт разницы
+    diff_materials = data1.get('materials_cost', 0) - data2.get('materials_cost', 0)
+    diff_other = (data1.get('drawings_cost', 0) + data1.get('nodes_cost', 0) + data1.get('node_production_cost', 0)) - \
+                 (data2.get('drawings_cost', 0) + data2.get('nodes_cost', 0) + data2.get('node_production_cost', 0))
+    diff_total = data1.get('total_cost', 0) - data2.get('total_cost', 0)
+    
+    # Определяем, какой режим дешевле
+    if diff_total < 0:
+        cheaper = mode1
+        saving = abs(diff_total)
+    elif diff_total > 0:
+        cheaper = mode2
+        saving = diff_total
+    else:
+        cheaper = None
+        saving = 0
+    
+    # Формируем текст
+    text = f"📊 СРАВНИТЕЛЬНЫЙ АНАЛИЗ\n\n"
+    text += f"🏷️ ИЗДЕЛИЕ: {product_name}\n"
+    text += f"📦 КОЛИЧЕСТВО: {format_number(quantity)} шт\n\n"
+    text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    text += "СРАВНЕНИЕ РЕЖИМОВ\n"
+    text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    
+    text += "┌─────────────────────┬──────────────────┬──────────────────┬──────────────────┐\n"
+    text += "│ Показатель          │ Режим 1          │ Режим 2          │ Разница (1 − 2) │\n"
+    text += "│                     │ ({:15}) │ ({:15}) │                  │\n".format(mode1[:15], mode2[:15])
+    text += "├─────────────────────┼──────────────────┼──────────────────┼──────────────────┤\n"
+    text += f"│ Материалы           │ {format_price(data1.get('materials_cost', 0)):>16} │ {format_price(data2.get('materials_cost', 0)):>16} │ {format_price(diff_materials):>16} │\n"
+    text += f"│ Узлы/Чертежи/Произ-во│ {format_price(data1.get('drawings_cost', 0) + data1.get('nodes_cost', 0) + data1.get('node_production_cost', 0)):>16} │ {format_price(data2.get('drawings_cost', 0) + data2.get('nodes_cost', 0) + data2.get('node_production_cost', 0)):>16} │ {format_price(diff_other):>16} │\n"
+    text += "├─────────────────────┼──────────────────┼──────────────────┼──────────────────┤\n"
+    text += f"│ СЕБЕСТОИМОСТЬ       │ {format_price(data1.get('total_cost', 0)):>16} │ {format_price(data2.get('total_cost', 0)):>16} │ {format_price(diff_total):>16} │\n"
+    text += "└─────────────────────┴──────────────────┴──────────────────┴──────────────────┘\n\n"
+    
+    if cheaper:
+        text += f"📖 ИТОГ:\n"
+        text += f"Режим {cheaper} дешевле режима {mode2 if cheaper == mode1 else mode1} на {format_price(saving)}\n"
+    else:
+        text += f"📖 ИТОГ:\n"
+        text += f"При введённых ценах оба режима дают одинаковую себестоимость\n"
+    
+    return text
 
 
 async def show_product_detail(update_obj, user_id: int, index: int):
     """Показывает детали по конкретному изделию (множественный режим)"""
-    session = get_session(user_id)
-    products_data = session.get('products_with_details', [])
-    
-    if index < 0 or index >= len(products_data):
-        return
-    
-    data = products_data[index]
-    product = data['product']
-    quantity = data['quantity']
-    market_price = data['market_price']
-    drawing_price = data['drawing_price']
-    materials_list = data.get('materials_list', [])
-    node_details = data.get('node_details', [])
-    drawings_needed = data.get('drawings_needed', 1)
-    tax_rate = session.get('tax', 0)
-    
-    materials_cost = sum(m['qty'] * m.get('price', 0) for m in materials_list)
-    
-    prod_price_str = product.get('Цена производства', '0 ISK')
-    try:
-        prod_price = float(str(prod_price_str).replace(' ISK', '').replace(' ', ''))
-    except:
-        prod_price = 0
-    production_cost = prod_price * drawings_needed
-    
-    drawings_cost = drawing_price * drawings_needed
-    node_drawings_cost = sum(node.get('total_cost', 0) for node in node_details)
-    drawings_cost += node_drawings_cost
-    
-    total_cost = materials_cost + production_cost + drawings_cost
-    revenue = market_price * quantity
-    profit_before_tax = revenue - total_cost
-    tax = calculate_tax(profit_before_tax, tax_rate)
-    profit_after_tax = profit_before_tax - tax
-    per_unit_cost = total_cost / quantity if quantity > 0 else 0
-    per_unit_profit = profit_after_tax / quantity if quantity > 0 else 0
-    
-    text = f"📊 РЕЗУЛЬТАТЫ РАСЧЁТА ({index + 1}/{len(products_data)})\n\n"
-    text += f"🏷️ ИЗДЕЛИЕ: {product.get('Наименование', '')}\n"
-    text += f"📂 КАТЕГОРИЯ: {product.get('Категории', '')}\n"
-    text += f"📦 КОЛИЧЕСТВО: {format_number(quantity)} шт\n"
-    text += f"⚙️ ЭФФЕКТИВНОСТЬ: {session.get('efficiency', 150)}%\n"
-    text += f"🏛️ НАЛОГ: {tax_rate}%\n\n"
-    text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    
-    if materials_list:
-        text += "📦 МАТЕРИАЛЫ:\n"
-        for i, m in enumerate(materials_list, 1):
-            text += format_material_result_line(i, m['name'], m['qty'], m.get('price', 0), m['qty'] * m.get('price', 0)) + "\n"
-        text += "\n"
-    
-    if node_details:
-        text += "🔩 УЗЛЫ И ЧЕРТЕЖИ:\n"
-        for i, node in enumerate(node_details, 1):
-            leftover = node.get('leftover', 0)
-            text += format_node_result_line(
-                i, node['name'], node['needed_qty'], 
-                node['drawings'], node.get('multiplicity', 1),
-                leftover if leftover > 0 else None
-            ) + "\n"
-        text += "\n"
-    
-    text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    
-    text += format_total_result(
-        materials_cost, production_cost, drawings_cost,
-        total_cost, revenue, profit_before_tax, tax, profit_after_tax,
-        per_unit_cost, per_unit_profit
-    )
-    
-    session['last_result_text'] = text
-    session['last_result_keyboard'] = result_keyboard(user_id, is_multi=True, current_index=index, total_count=len(products_data))
-    
-    await _send_result_message(update_obj, text, result_keyboard(user_id, is_multi=True, current_index=index, total_count=len(products_data)), parse_mode='Markdown')
+    # TODO: реализовать для множественного режима
+    pass
 
 
 async def next_detail(update_obj, user_id: int):
     """Переход к следующему изделию"""
-    session = get_session(user_id)
-    products_data = session.get('products_with_details', [])
-    current = session.get('result_page', 0)
-    
-    next_index = current + 1
-    if next_index < len(products_data):
-        session['result_page'] = next_index
-        await show_product_detail(update_obj, user_id, next_index)
+    pass
 
 
 async def prev_detail(update_obj, user_id: int):
     """Переход к предыдущему изделию"""
-    session = get_session(user_id)
-    current = session.get('result_page', 0)
-    
-    prev_index = current - 1
-    if prev_index >= 0:
-        session['result_page'] = prev_index
-        await show_product_detail(update_obj, user_id, prev_index)
+    pass
 
 
 async def back_to_total_summary(update_obj, user_id: int):
     """Возврат к общей сводке"""
-    session = get_session(user_id)
-    session['result_page'] = -1
-    await _show_total_summary(update_obj, user_id)
+    pass
 
 
-async def back_to_result(update_obj, user_id: int):
+async def back_to_result(query, user_id: int):
     """Возврат к результатам из пояснения"""
     session = get_session(user_id)
     text = session.get('last_result_text')
     keyboard = session.get('last_result_keyboard')
     
     if text and keyboard:
-        await _send_result_message(update_obj, text, keyboard, parse_mode='Markdown')
+        await query.edit_message_text(text, reply_markup=keyboard, parse_mode='Markdown')
 
 
 async def same_category(update_obj, user_id: int):
@@ -380,36 +351,26 @@ async def same_category(update_obj, user_id: int):
     category_tree = session.get('category_tree')
     mode = session.get('mode')
     
+    from .session import reset_session_for_new_calculation
     reset_session_for_new_calculation(user_id, mode, category_path, category_tree)
     
     path_str = " > ".join(category_path) if category_path else ""
     
-    if mode == 'single':
-        await _send_result_message(
-            update_obj,
-            f"📊 ПАРАМЕТРЫ РАСЧЁТА\n\n"
-            f"Категория: {path_str}\n\n"
-            f"Введите эффективность производства (%):\n"
-            f"Пример: 110",
-            cancel_button(user_id)
-        )
-    else:
-        await _send_result_message(
-            update_obj,
-            f"📊 ПАРАМЕТРЫ РАСЧЁТА\n\n"
-            f"Категория: {path_str}\n\n"
-            f"Введите эффективность производства (%):\n"
-            f"(общая для всех изделий)\n\n"
-            f"Пример: 110",
-            cancel_button(user_id)
-        )
+    await _send_result_message(
+        update_obj,
+        f"📊 ПАРАМЕТРЫ РАСЧЁТА\n\n"
+        f"Категория: {path_str}\n\n"
+        f"Введите эффективность производства (%):\n"
+        f"Пример: 110",
+        cancel_button(user_id)
+    )
 
 
 async def show_explanation(update_obj, user_id: int):
-    """Показывает пояснение (без Markdown)"""
+    """Показывает пояснение"""
     await _send_result_message(
         update_obj,
         format_explanation(),
         explanation_keyboard(user_id),
-        parse_mode=None  # Отключаем Markdown для пояснения
+        parse_mode='Markdown'
     )
