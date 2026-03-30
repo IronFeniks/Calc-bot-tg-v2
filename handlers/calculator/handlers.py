@@ -183,6 +183,33 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
         lock.refresh(user_id)
     
     action = data.replace(f"user_{user_id}_", "")
+
+    # В блоке результатов добавить:
+if action == "start_comparison":
+    from .results import start_comparison
+    await start_comparison(query, user_id)
+    return
+
+if action == "comparison_prev":
+    session = get_session(user_id)
+    page = session.get('comparison_page', 0) - 1
+    session['comparison_page'] = page
+    from .results import _show_comparison_page
+    await _show_comparison_page(query, user_id, page)
+    return
+
+if action == "comparison_next":
+    session = get_session(user_id)
+    page = session.get('comparison_page', 0) + 1
+    session['comparison_page'] = page
+    from .results import _show_comparison_page
+    await _show_comparison_page(query, user_id, page)
+    return
+
+if action == "new_calculation":
+    clear_session(user_id)
+    await start_calculator(update, context, is_topic, lock)
+    return
     
     # ==================== ГЛОБАЛЬНЫЕ ====================
     if action == "cancel":
