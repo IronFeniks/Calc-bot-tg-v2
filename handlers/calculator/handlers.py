@@ -332,31 +332,62 @@ if action == "new_calculation":
         return
     
     # ==================== РЕЗУЛЬТАТЫ ====================
-    if action == "next_detail":
-        await next_detail(query, user_id)
-        return
-    elif action == "prev_detail":
-        await prev_detail(query, user_id)
-        return
-    elif action == "total_summary":
-        await back_to_total_summary(query, user_id)
-        return
-    elif action == "back_to_result":
-        await back_to_result(query, user_id)
-        return
-    elif action == "same_category":
-        await same_category(query, user_id)
-        return
-    elif action == "explain":
-        await show_explanation(query, user_id)
-        return
-    elif action == "back_to_products":
-        await show_products(query, user_id, 1)
-        return
-    elif action == "back_to_multi_select":
-        await show_multi_products(query, user_id, 1)
-        return
-    elif action == "back_to_start":
+if action == "next_detail":
+    await next_detail(query, user_id)
+    return
+elif action == "prev_detail":
+    await prev_detail(query, user_id)
+    return
+elif action == "total_summary":
+    await back_to_total_summary(query, user_id)
+    return
+elif action == "back_to_result":
+    await back_to_result(query, user_id)
+    return
+elif action == "same_category":
+    await same_category(query, user_id)
+    return
+elif action == "explain":
+    await show_explanation(query, user_id)
+    return
+elif action == "back_to_products":
+    await show_products(query, user_id, 1)
+    return
+elif action == "back_to_multi_select":
+    await show_multi_products(query, user_id, 1)
+    return
+elif action == "back_to_start":
+    await start_calculator(update, context, is_topic, lock)
+    return
+
+# ==================== СРАВНИТЕЛЬНЫЙ РАСЧЁТ ====================
+if action == "start_comparison":
+    from .results import start_comparison
+    await start_comparison(query, user_id)
+    return
+
+if action == "comparison_prev":
+    session = get_session(user_id)
+    page = session.get('comparison_page', 0) - 1
+    if page >= 0:
+        session['comparison_page'] = page
+        from .results import _show_comparison_page
+        await _show_comparison_page(query, user_id, page)
+    return
+
+if action == "comparison_next":
+    session = get_session(user_id)
+    page = session.get('comparison_page', 0) + 1
+    if page <= 2:
+        session['comparison_page'] = page
+        from .results import _show_comparison_page
+        await _show_comparison_page(query, user_id, page)
+    return
+
+if action == "new_calculation":
+    clear_session(user_id)
+    await start_calculator(update, context, is_topic, lock)
+    return
         # Возврат к началу из помощи
         await start_calculator(update, context, is_topic, lock)
         return
