@@ -6,6 +6,7 @@ from keyboards.calculator import cancel_button, back_button
 from utils.formatters import parse_int_input, parse_float_input, format_price
 from price_db import get_drawing_price, save_drawing_price
 from .session import get_session
+from .parameters import check_product_has_nodes
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +107,11 @@ async def process_drawing_price(update: Update, context: ContextTypes.DEFAULT_TY
     product = session.get('selected_product', {})
     save_drawing_price(product.get('Код', ''), price)
     
-    logger.info(f"✅ Цена чертежа сохранена: {price}, efficiency={efficiency}, tax={tax}")
+    # Проверяем, есть ли у изделия узлы (для кнопки сравнительного расчёта)
+    has_nodes = await check_product_has_nodes(product.get('Код', ''))
+    session['product_has_nodes'] = has_nodes
+    
+    logger.info(f"✅ Цена чертежа сохранена: {price}, efficiency={efficiency}, tax={tax}, has_nodes={has_nodes}")
     
     from .materials import calculate_single_materials
     await calculate_single_materials(update, user_id)
@@ -128,16 +133,13 @@ async def process_multi_quantity(update: Update, context: ContextTypes.DEFAULT_T
         )
         return
     
-    # Сохраняем количество во временную переменную
     session['temp_quantity'] = qty
-    
-    # Устанавливаем следующий шаг — ввод рыночной цены
     session['step'] = 'multi_market_price'
     
     saved_price = get_drawing_price(product.get('Код', ''))
     price_text = format_price(saved_price) if saved_price > 0 else "не установлена"
     
-    logger.info(f"📦 Количество для {product['Наименование']} сохранено: {qty}, переход к рыночной цене (шаг multi_market_price)")
+    logger.info(f"📦 Количество для {product['Наименование']} сохранено: {qty}, переход к рыночной цене")
     
     await update.message.reply_text(
         f"💰 РЫНОЧНАЯ ЦЕНА ({current_index + 1}/{total_products})\n\n"
@@ -163,8 +165,6 @@ async def process_multi_market_price(update: Update, context: ContextTypes.DEFAU
     
     session = get_session(user_id)
     session['temp_market_price'] = price
-    
-    # Устанавливаем следующий шаг — ввод стоимости чертежа
     session['step'] = 'multi_drawing_price'
     
     product = session.get('current_multi_product', {})
@@ -173,7 +173,7 @@ async def process_multi_market_price(update: Update, context: ContextTypes.DEFAU
     saved_price = get_drawing_price(product.get('Код', ''))
     price_text = format_price(saved_price) if saved_price > 0 else "не установлена"
     
-    logger.info(f"💰 Рыночная цена для {product['Наименование']} сохранена: {price}, переход к стоимости чертежа (шаг multi_drawing_price)")
+    logger.info(f"💰 Рыночная цена для {product['Наименование']} сохранена: {price}, переход к стоимости чертежа")
     
     await update.message.reply_text(
         f"💰 СТОИМОСТЬ ЧЕРТЕЖА ({current_index + 1}/{total_products})\n\n"
@@ -213,7 +213,6 @@ async def process_multi_drawing_price(update: Update, context: ContextTypes.DEFA
     
     save_drawing_price(product.get('Код', ''), price)
     
-    # Сохраняем все данные для этого изделия
     product_data = {
         'product': product,
         'quantity': session.get('temp_quantity'),
@@ -222,20 +221,14 @@ async def process_multi_drawing_price(update: Update, context: ContextTypes.DEFA
     }
     
     session['multi_products_data'].append(product_data)
-    
-    # Увеличиваем индекс
     session['current_product_index'] = current_index + 1
     
     logger.info(f"✅ Данные для {product['Наименование']} сохранены ({current_index + 1}/{total_products})")
     
-    # Проверяем, есть ли ещё изделия
     if session['current_product_index'] < total_products:
-        # Переходим к следующему изделию — устанавливаем шаг для ввода количества
-        session['step'] = 'multi_quantity'
         from .parameters import process_next_multi_product
         await process_next_multi_product(update, user_id)
     else:
-        # Все изделия обработаны — переходим к расчёту материалов
         logger.info(f"✅ Все {total_products} изделий обработаны, переход к расчёту материалов")
         from .materials import calculate_multi_materials
         await calculate_multi_materials(update, user_id)
