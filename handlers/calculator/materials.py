@@ -19,7 +19,12 @@ async def calculate_single_materials(update, user_id: int):
     product = session.get('selected_product', {})
     quantity = session.get('qty', 0)
     efficiency = session.get('efficiency')
-    calculation_mode = session.get('calculation_mode', 'buy_nodes')  # 'buy_nodes' или 'produce_nodes'
+    calculation_mode = session.get('calculation_mode', 'buy_nodes')
+    
+    # ДИАГНОСТИКА
+    logger.info(f"🔧 [calculate_single_materials] calculation_mode = {calculation_mode}")
+    logger.info(f"🔧 [calculate_single_materials] product = {product.get('Наименование', 'Unknown')}")
+    logger.info(f"🔧 [calculate_single_materials] quantity = {quantity}, efficiency = {efficiency}")
     
     if efficiency is None:
         logger.error(f"efficiency is None в calculate_single_materials для пользователя {user_id}")
@@ -35,6 +40,11 @@ async def calculate_single_materials(update, user_id: int):
         product['Код'], quantity, efficiency, excel, saved_prices, calculation_mode
     )
     
+    # ДИАГНОСТИКА
+    logger.info(f"🔧 [calculate_single_materials] materials_list: {len(materials_list)} шт")
+    logger.info(f"🔧 [calculate_single_materials] nodes_list: {len(nodes_list)} шт")
+    logger.info(f"🔧 [calculate_single_materials] drawings_list: {len(drawings_list)} шт")
+    
     # Унифицируем структуру для ввода цен
     unified_items = []
     for m in materials_list:
@@ -48,6 +58,7 @@ async def calculate_single_materials(update, user_id: int):
     
     # В режиме "покупка узлов" добавляем узлы
     if calculation_mode == 'buy_nodes':
+        logger.info("🔧 [calculate_single_materials] Режим: ПОКУПКА УЗЛОВ — добавляем узлы в список")
         for n in nodes_list:
             unified_items.append({
                 'name': n['name'],
@@ -58,6 +69,7 @@ async def calculate_single_materials(update, user_id: int):
             })
     else:
         # В режиме "производство узлов" добавляем чертежи узлов
+        logger.info("🔧 [calculate_single_materials] Режим: ПРОИЗВОДСТВО УЗЛОВ — добавляем чертежи в список")
         for d in drawings_list:
             unified_items.append({
                 'name': d['name'],
@@ -98,6 +110,9 @@ async def _calculate_materials(product_code: str, quantity: int, efficiency: flo
     Args:
         mode: 'buy_nodes' - покупка узлов, 'produce_nodes' - производство узлов
     """
+    # ДИАГНОСТИКА
+    logger.info(f"🔧 [_calculate_materials] mode = {mode}")
+    
     product = excel.get_product_by_code(product_code)
     if not product:
         logger.warning(f"Продукт с кодом {product_code} не найден")
@@ -105,6 +120,9 @@ async def _calculate_materials(product_code: str, quantity: int, efficiency: flo
     
     multiplicity = product.get('Кратность', 1)
     drawings_needed = math.ceil(quantity / multiplicity)
+    
+    # ДИАГНОСТИКА
+    logger.info(f"🔧 [_calculate_materials] product = {product.get('Наименование')}, multiplicity={multiplicity}, drawings_needed={drawings_needed}")
     
     materials_dict = {}
     nodes_list = []
@@ -152,6 +170,9 @@ async def _calculate_materials(product_code: str, quantity: int, efficiency: flo
                 node_multiplicity = child.get('Кратность', 1)
                 node_drawings, node_leftover = calculate_node_drawings(total_qty, node_multiplicity)
                 
+                # ДИАГНОСТИКА
+                logger.info(f"🔧 [collect_materials] Найден узел: {child_name}, total_qty={total_qty}, mode={mode}")
+                
                 # Сохраняем информацию об узле
                 nodes_list.append({
                     'name': child_name,
@@ -161,29 +182,29 @@ async def _calculate_materials(product_code: str, quantity: int, efficiency: flo
                     'leftover': node_leftover,
                     'price_per_drawing': child_price,
                     'total_cost': node_drawings * child_price,
-                    'price': 0  # будет заполнено при вводе цен
+                    'price': 0
                 })
                 
                 # В режиме производства узлов — собираем материалы из узла
                 if mode == 'produce_nodes':
+                    logger.info(f"🔧 [collect_materials] Режим production — рекурсивно собираем материалы узла {child_name}")
                     collect_materials(child_code, total_qty, is_node=True)
-                
-                # В режиме покупки узлов — добавляем узел в список для ввода цены
-                # (материалы из узла не собираются)
+                else:
+                    logger.info(f"🔧 [collect_materials] Режим buy_nodes — НЕ собираем материалы узла {child_name}")
             
             elif child_type == 'изделие' and is_node:
-                # Если узел содержит другое изделие (редко, но возможно)
                 collect_materials(child_code, total_qty, is_node=True)
     
     collect_materials(product_code, drawings_needed, is_node=False)
     
     # Формируем список чертежей для режима производства узлов
     if mode == 'produce_nodes':
+        logger.info(f"🔧 [_calculate_materials] Формируем список чертежей для {len(nodes_list)} узлов")
         for node in nodes_list:
             drawings_list.append({
                 'name': node['name'],
                 'drawings': node['drawings'],
-                'price': 0,  # будет заполнено при вводе цен
+                'price': 0,
                 'original': node
             })
     
@@ -192,7 +213,7 @@ async def _calculate_materials(product_code: str, quantity: int, efficiency: flo
     for i, item in enumerate(materials_list, 1):
         item['number'] = i
     
-    logger.info(f"Расчитано: материалов={len(materials_list)}, узлов={len(nodes_list)}, чертежей={len(drawings_list)}")
+    logger.info(f"🔧 [_calculate_materials] ИТОГ: материалов={len(materials_list)}, узлов={len(nodes_list)}, чертежей={len(drawings_list)}")
     
     return materials_list, nodes_list, drawings_list
 
@@ -204,11 +225,17 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False,
     nodes = session.get('nodes_list', [])
     drawings = session.get('drawings_list', [])
     
+    # ДИАГНОСТИКА
+    logger.info(f"🔧 [_show_materials_list] mode = {mode}")
+    logger.info(f"🔧 [_show_materials_list] materials={len(materials)}, nodes={len(nodes)}, drawings={len(drawings)}")
+    
     # Формируем элементы для отображения
     if mode == 'buy_nodes':
         display_items = materials + nodes
+        logger.info(f"🔧 [_show_materials_list] Режим buy_nodes — показываем материалы({len(materials)}) + узлы({len(nodes)}) = {len(display_items)} элементов")
     else:
         display_items = materials + drawings
+        logger.info(f"🔧 [_show_materials_list] Режим produce_nodes — показываем материалы({len(materials)}) + чертежи({len(drawings)}) = {len(display_items)} элементов")
     
     display_items.sort(key=lambda x: x.get('name', ''))
     
