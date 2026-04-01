@@ -92,8 +92,9 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
         # Производство узлов
         for node in nodes_list:
             node_production_cost += node.get('total_cost', 0)
+        # ИСПРАВЛЕНО: используем ключ 'drawings' вместо 'qty'
         for drawing in drawings_list:
-            drawings_cost += drawing['qty'] * drawing.get('price', 0)
+            drawings_cost += drawing['drawings'] * drawing.get('price', 0)
     
     total_cost = materials_cost + production_cost + drawings_cost + nodes_cost + node_production_cost
     revenue = market_price * quantity
@@ -130,7 +131,7 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
     elif not calculation_mode == 'buy_nodes' and drawings_list:
         text += "📄 ЧЕРТЕЖИ УЗЛОВ:\n"
         for i, drawing in enumerate(drawings_list, 1):
-            text += f"{i}. {drawing['name']}: нужно {format_number(drawing['qty'])} чертежей | цена: {format_price(drawing.get('price', 0))}\n"
+            text += f"{i}. {drawing['name']}: нужно {format_number(drawing['drawings'])} чертежей | цена: {format_price(drawing.get('price', 0))}\n"
         text += "\n"
         
         if node_production_cost > 0:
@@ -166,6 +167,22 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
         session['product_name'] = product.get('Наименование', '')
         session['quantity'] = quantity
         session['has_nodes'] = await check_product_has_nodes(product.get('Код', ''))
+    
+    # Сохраняем для последующего использования (например, в сравнении)
+    session['last_result_text'] = text
+    session['last_calculation_data'] = {
+        'materials_cost': materials_cost,
+        'production_cost': production_cost,
+        'drawings_cost': drawings_cost,
+        'nodes_cost': nodes_cost,
+        'node_production_cost': node_production_cost,
+        'total_cost': total_cost,
+        'revenue': revenue,
+        'profit_before_tax': profit_before_tax,
+        'tax': tax,
+        'profit_after_tax': profit_after_tax
+    }
+    session['calculation_mode_name'] = mode_name
     
     # Определяем, показывать ли кнопку сравнения
     show_comparison = not is_comparison and session.get('has_nodes', False)
