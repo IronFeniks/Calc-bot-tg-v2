@@ -12,7 +12,7 @@ from .session import get_session
 logger = logging.getLogger(__name__)
 
 
-async def calculate_single_materials(update_obj, user_id: int):
+async def calculate_single_materials(update, user_id: int):
     """Расчёт материалов для одиночного режима"""
     session = get_session(user_id)
     excel = get_excel_handler()
@@ -21,22 +21,17 @@ async def calculate_single_materials(update_obj, user_id: int):
     efficiency = session.get('efficiency')
     calculation_mode = session.get('calculation_mode', 'buy_nodes')
     
+    # ДИАГНОСТИКА
     logger.info(f"🔧 [calculate_single_materials] calculation_mode = {calculation_mode}")
     logger.info(f"🔧 [calculate_single_materials] product = {product.get('Наименование', 'Unknown')}")
     logger.info(f"🔧 [calculate_single_materials] quantity = {quantity}, efficiency = {efficiency}")
     
     if efficiency is None:
         logger.error(f"efficiency is None в calculate_single_materials для пользователя {user_id}")
-        if isinstance(update_obj, Update):
-            await update_obj.message.reply_text(
-                "❌ Ошибка: не задана эффективность. Пожалуйста, начните расчёт заново с /start",
-                reply_markup=cancel_button(user_id)
-            )
-        else:
-            await update_obj.edit_message_text(
-                "❌ Ошибка: не задана эффективность. Пожалуйста, начните расчёт заново с /start",
-                reply_markup=cancel_button(user_id)
-            )
+        await update.message.reply_text(
+            "❌ Ошибка: не задана эффективность. Пожалуйста, начните расчёт заново с /start",
+            reply_markup=cancel_button(user_id)
+        )
         return
     
     saved_prices = get_all_material_prices()
@@ -83,17 +78,11 @@ async def calculate_single_materials(update_obj, user_id: int):
     
     unified_items.sort(key=lambda x: x['name'])
     
-    # Сохраняем unified_items в сессию
-    session['unified_price_items'] = unified_items
     session['materials_list'] = materials_list
     session['nodes_list'] = nodes_list
     session['drawings_list'] = drawings_list
+    session['unified_price_items'] = unified_items
     session['calculation_mode'] = calculation_mode
-    
-    # Сохраняем название режима для отображения
-    mode_name = "покупка узлов" if calculation_mode == 'buy_nodes' else "производство узлов"
-    session['calculation_mode_name'] = mode_name
-    
     session['single_product_detail'] = {
         'product': product,
         'quantity': quantity,
@@ -102,12 +91,11 @@ async def calculate_single_materials(update_obj, user_id: int):
     session['step'] = 'materials'
     session['materials_page'] = 0
     
-    await _show_materials_list(update_obj, user_id, is_multi=False, mode=calculation_mode)
+    await _show_materials_list(update, user_id, is_multi=False, mode=calculation_mode)
 
 
 async def calculate_multi_materials(update, user_id: int):
     """Расчёт материалов для множественного режима"""
-    # TODO: реализовать для множественного режима
     pass
 
 
@@ -227,14 +215,12 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False,
     nodes = session.get('nodes_list', [])
     drawings = session.get('drawings_list', [])
     
-    # Используем unified_price_items из сессии
     unified_items = session.get('unified_price_items', [])
     
     if unified_items:
         display_items = unified_items
         logger.info(f"🔧 [_show_materials_list] Используем unified_price_items из сессии: {len(display_items)} элементов")
     else:
-        # Fallback: формируем из материалов и узлов
         if mode == 'buy_nodes':
             display_items = []
             for m in materials:
@@ -276,10 +262,6 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False,
     logger.info(f"🔧 [_show_materials_list] mode = {mode}")
     logger.info(f"🔧 [_show_materials_list] display_items содержит {len(display_items)} элементов")
     
-    # Логируем первые 5 элементов для отладки
-    for i, item in enumerate(display_items[:5]):
-        logger.info(f"🔧   display_items[{i}]: type={item.get('type')}, name={item.get('name')}")
-    
     for i, item in enumerate(display_items, 1):
         item['global_number'] = i
     
@@ -303,10 +285,6 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False,
     end = min(start + items_per_page, len(display_items))
     page_items = display_items[start:end]
     
-    logger.info(f"🔧 [_show_materials_list] Страница {page + 1}/{total_pages}, показывает {len(page_items)} элементов")
-    for item in page_items:
-        logger.info(f"🔧   - {item.get('type')}: {item.get('name')}")
-    
     text = "📦 МАТЕРИАЛЫ И "
     if mode == 'buy_nodes':
         text += "УЗЛЫ\n\n"
@@ -329,8 +307,6 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False,
         elif item_type == 'drawing':
             text += f"{item['global_number']}. {item['name']}: нужно {format_number(item['qty'])} чертежей | цена: {price_str}\n"
         else:
-            # Fallback для элементов без типа
-            logger.warning(f"Элемент без типа: {item}")
             text += f"{item['global_number']}. {item['name']}: нужно {format_number(item['qty'])} шт | цена: {price_str}\n"
     
     missing = [i for i in display_items if i.get('price', 0) == 0]
@@ -352,7 +328,6 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False,
 
 
 async def start_price_input(query, user_id: int):
-    """Начало пошагового ввода цен"""
     session = get_session(user_id)
     unified_items = session.get('unified_price_items', [])
     
@@ -364,7 +339,6 @@ async def start_price_input(query, user_id: int):
 
 
 async def _process_next_price(update_obj, user_id: int, is_callback: bool = True):
-    """Ввод цены для следующего элемента"""
     session = get_session(user_id)
     items = session.get('price_input_items', [])
     current = session.get('current_material', 0)
@@ -390,7 +364,6 @@ async def _process_next_price(update_obj, user_id: int, is_callback: bool = True
 
 
 async def process_price_input_value(update: Update, user_id: int, text: str):
-    """Обработка введённой цены"""
     from utils.formatters import parse_float_input
     
     price = parse_float_input(text)
@@ -430,7 +403,6 @@ async def process_price_input_value(update: Update, user_id: int, text: str):
 
 
 async def auto_prices(query, user_id: int):
-    """Автоматическая подстановка цен"""
     session = get_session(user_id)
     unified_items = session.get('unified_price_items', [])
     
@@ -440,16 +412,9 @@ async def auto_prices(query, user_id: int):
         text = "🤖 АВТОМАТИЧЕСКАЯ ПОДСТАНОВКА ЦЕН\n\n"
         text += f"✅ Цены подставлены для: {len(unified_items) - len(missing)} элементов\n"
         text += f"⚠️ Нет цен для: {len(missing)} элементов\n\n"
-        
-        # Определяем тип элементов без цен
-        missing_types = set()
-        for m in missing:
-            missing_types.add(m.get('type', 'unknown'))
-        
         text += "Элементы без цен:\n"
         for m in missing[:10]:
-            item_type = "узел" if m.get('type') == 'node' else "чертеж" if m.get('type') == 'drawing' else "материал"
-            text += f"• {m['name']} ({item_type}): нужно {format_number(m['qty'])} шт\n"
+            text += f"• {m['name']} (нужно {format_number(m['qty'])} шт)\n"
         if len(missing) > 10:
             text += f"• ... и ещё {len(missing) - 10}\n\n"
         text += "Что делаем?"
@@ -464,7 +429,6 @@ async def auto_prices(query, user_id: int):
 
 
 async def input_missing_prices(query, user_id: int):
-    """Ввод только недостающих цен"""
     session = get_session(user_id)
     missing = session.get('missing_materials', [])
     
@@ -476,7 +440,6 @@ async def input_missing_prices(query, user_id: int):
 
 
 async def _process_next_missing_price(update_obj, user_id: int, is_callback: bool = True):
-    """Ввод цены для недостающего элемента"""
     session = get_session(user_id)
     items = session.get('price_input_items', [])
     current = session.get('current_material', 0)
@@ -488,11 +451,8 @@ async def _process_next_missing_price(update_obj, user_id: int, is_callback: boo
     
     item = items[current]
     
-    # Определяем тип элемента для подсказки
-    item_type = "узла" if item.get('type') == 'node' else "чертежа" if item.get('type') == 'drawing' else "материала"
-    
     text = f"📦 ВВОД НЕДОСТАЮЩИХ ЦЕН ({current + 1}/{len(items)})\n\n"
-    text += f"Элемент: {item['name']} ({item_type})\n"
+    text += f"Элемент: {item['name']}\n"
     text += f"Необходимое количество: {format_number(item['qty'])} шт\n\n"
     text += "Введите цену за 1 шт (ISK):"
     
@@ -503,7 +463,6 @@ async def _process_next_missing_price(update_obj, user_id: int, is_callback: boo
 
 
 async def process_missing_price_value(update: Update, user_id: int, text: str):
-    """Обработка введённой цены для недостающего элемента"""
     from utils.formatters import parse_float_input
     
     price = parse_float_input(text)
