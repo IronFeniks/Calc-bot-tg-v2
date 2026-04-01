@@ -175,7 +175,6 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
     data = query.data
     user_id = query.from_user.id
     
-    # Проверка, что callback для этого пользователя
     if not data.startswith(f"user_{user_id}_") and data != "noop":
         await query.answer("⛔ Эта кнопка не для вас", show_alert=True)
         return
@@ -305,6 +304,7 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
     if action == "mode_buy_nodes":
         session = get_session(user_id)
         session['calculation_mode'] = 'buy_nodes'
+        logger.info(f"🔧 Установлен режим buy_nodes (покупка узлов) для пользователя {user_id}")
         session['step'] = 'materials'
         await calculate_single_materials(query, user_id)
         return
@@ -312,6 +312,7 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
     if action == "mode_produce_nodes":
         session = get_session(user_id)
         session['calculation_mode'] = 'produce_nodes'
+        logger.info(f"🔧 Установлен режим produce_nodes (производство узлов) для пользователя {user_id}")
         session['step'] = 'materials'
         await calculate_single_materials(query, user_id)
         return
