@@ -15,12 +15,23 @@ logger = logging.getLogger(__name__)
 
 
 async def _send_result_message(update_obj, text: str, reply_markup, parse_mode: str = 'Markdown'):
-    """Универсальная функция отправки результата"""
+    """
+    Универсальная функция отправки результата с проверкой длины сообщения
+    Telegram ограничивает длину сообщения 4096 символами
+    """
+    MAX_LENGTH = 4000  # Оставляем запас для кнопок и предупреждения
+    
+    if len(text) > MAX_LENGTH:
+        # Обрезаем сообщение и добавляем предупреждение
+        text = text[:MAX_LENGTH] + "\n\n⚠️ *Сообщение обрезано из-за ограничения Telegram (максимум 4096 символов). Для полного списка используйте пагинацию или уменьшите количество отображаемых элементов.*"
+        logger.warning(f"Сообщение обрезано: было {len(text)} символов, стало {MAX_LENGTH + 100}")
+    
     if isinstance(update_obj, CallbackQuery):
         try:
             await update_obj.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
         except Exception as e:
             logger.error(f"Ошибка при редактировании сообщения: {e}")
+            # Пробуем отправить новое сообщение
             await update_obj.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
     elif hasattr(update_obj, 'message') and update_obj.message:
         await update_obj.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
@@ -122,29 +133,61 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
     text += f"🎯 РЕЖИМ: {mode_name}\n\n"
     text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     
-    # Материалы
-    if materials_list:
+    # Материалы (ограничиваем вывод до 30 материалов для предотвращения слишком длинного сообщения)
+    max_materials_display = 30
+    if len(materials_list) > max_materials_display:
+        text += f"📦 МАТЕРИАЛЫ (показаны первые {max_materials_display} из {len(materials_list)}):\n"
+        display_materials = materials_list[:max_materials_display]
+    else:
         text += "📦 МАТЕРИАЛЫ:\n"
-        for i, m in enumerate(materials_list, 1):
-            text += format_material_result_line(i, m['name'], m['qty'], m.get('price', 0), m.get('cost', 0)) + "\n"
-        text += "\n"
+        display_materials = materials_list
     
-    # Узлы или чертежи
+    for i, m in enumerate(display_materials, 1):
+        text += format_material_result_line(i, m['name'], m['qty'], m.get('price', 0), m.get('cost', 0)) + "\n"
+    
+    if len(materials_list) > max_materials_display:
+        text += f"... и ещё {len(materials_list) - max_materials_display} материалов\n"
+    text += "\n"
+    
+    # Узлы или чертежи (ограничиваем вывод)
+    max_nodes_display = 20
+    
     if calculation_mode == 'buy_nodes' and nodes_list:
-        text += "🔩 УЗЛЫ (покупка):\n"
-        for i, node in enumerate(nodes_list, 1):
+        if len(nodes_list) > max_nodes_display:
+            text += f"🔩 УЗЛЫ (покупка, показаны первые {max_nodes_display} из {len(nodes_list)}):\n"
+            display_nodes = nodes_list[:max_nodes_display]
+        else:
+            text += "🔩 УЗЛЫ (покупка):\n"
+            display_nodes = nodes_list
+        
+        for i, node in enumerate(display_nodes, 1):
             text += f"{i}. {node['name']}: нужно {format_number(node['needed_qty'])} шт | цена: {format_price(node.get('price', 0))}\n"
+        
+        if len(nodes_list) > max_nodes_display:
+            text += f"... и ещё {len(nodes_list) - max_nodes_display} узлов\n"
         text += "\n"
+        
     elif not calculation_mode == 'buy_nodes' and drawings_list:
-        text += "📄 ЧЕРТЕЖИ УЗЛОВ:\n"
-        for i, drawing in enumerate(drawings_list, 1):
+        if len(drawings_list) > max_nodes_display:
+            text += f"📄 ЧЕРТЕЖИ УЗЛОВ (показаны первые {max_nodes_display} из {len(drawings_list)}):\n"
+            display_drawings = drawings_list[:max_nodes_display]
+        else:
+            text += "📄 ЧЕРТЕЖИ УЗЛОВ:\n"
+            display_drawings = drawings_list
+        
+        for i, drawing in enumerate(display_drawings, 1):
             text += f"{i}. {drawing['name']}: нужно {format_number(drawing['drawings'])} чертежей | цена: {format_price(drawing.get('price', 0))}\n"
+        
+        if len(drawings_list) > max_nodes_display:
+            text += f"... и ещё {len(drawings_list) - max_nodes_display} чертежей\n"
         text += "\n"
         
         if node_production_cost > 0:
             text += "🏭 ПРОИЗВОДСТВО УЗЛОВ (фиксированная стоимость):\n"
-            for node in nodes_list:
+            for node in nodes_list[:max_nodes_display]:
                 text += f"• {node['name']}: {format_number(node['drawings'])} чертежей × {format_price(node['price_per_drawing'])} = {format_price(node['total_cost'])}\n"
+            if len(nodes_list) > max_nodes_display:
+                text += f"... и ещё {len(nodes_list) - max_nodes_display} узлов\n"
             text += "\n"
     
     text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
