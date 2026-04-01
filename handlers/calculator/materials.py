@@ -61,7 +61,7 @@ async def calculate_single_materials(update, user_id: int):
                 'name': n['name'],
                 'qty': n['needed_qty'],
                 'price': n.get('price', 0),
-                'type': 'node',
+                'type': 'node',  # ← важно: тип должен быть 'node'
                 'original': n
             })
     else:
@@ -77,10 +77,11 @@ async def calculate_single_materials(update, user_id: int):
     
     unified_items.sort(key=lambda x: x['name'])
     
+    # Сохраняем unified_items в сессию
+    session['unified_price_items'] = unified_items
     session['materials_list'] = materials_list
     session['nodes_list'] = nodes_list
     session['drawings_list'] = drawings_list
-    session['unified_price_items'] = unified_items
     session['calculation_mode'] = calculation_mode
     session['single_product_detail'] = {
         'product': product,
@@ -90,6 +91,7 @@ async def calculate_single_materials(update, user_id: int):
     session['step'] = 'materials'
     session['materials_page'] = 0
     
+    # Передаём mode в _show_materials_list
     await _show_materials_list(update, user_id, is_multi=False, mode=calculation_mode)
 
 
@@ -215,17 +217,58 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False,
     nodes = session.get('nodes_list', [])
     drawings = session.get('drawings_list', [])
     
-    logger.info(f"🔧 [_show_materials_list] mode = {mode}")
-    logger.info(f"🔧 [_show_materials_list] materials={len(materials)}, nodes={len(nodes)}, drawings={len(drawings)}")
+    # Используем unified_price_items из сессии
+    unified_items = session.get('unified_price_items', [])
     
-    if mode == 'buy_nodes':
-        display_items = materials + nodes
-        logger.info(f"🔧 [_show_materials_list] Режим buy_nodes — показываем материалы({len(materials)}) + узлы({len(nodes)}) = {len(display_items)} элементов")
+    if unified_items:
+        display_items = unified_items
+        logger.info(f"🔧 [_show_materials_list] Используем unified_price_items из сессии: {len(display_items)} элементов")
     else:
-        display_items = materials + drawings
-        logger.info(f"🔧 [_show_materials_list] Режим produce_nodes — показываем материалы({len(materials)}) + чертежи({len(drawings)}) = {len(display_items)} элементов")
+        # Fallback: формируем из материалов и узлов
+        if mode == 'buy_nodes':
+            display_items = []
+            for m in materials:
+                display_items.append({
+                    'name': m['name'],
+                    'qty': m['qty'],
+                    'price': m.get('price', 0),
+                    'type': 'material',
+                    'original': m
+                })
+            for n in nodes:
+                display_items.append({
+                    'name': n['name'],
+                    'qty': n['needed_qty'],
+                    'price': n.get('price', 0),
+                    'type': 'node',
+                    'original': n
+                })
+        else:
+            display_items = []
+            for m in materials:
+                display_items.append({
+                    'name': m['name'],
+                    'qty': m['qty'],
+                    'price': m.get('price', 0),
+                    'type': 'material',
+                    'original': m
+                })
+            for d in drawings:
+                display_items.append({
+                    'name': d['name'],
+                    'qty': d['drawings'],
+                    'price': d.get('price', 0),
+                    'type': 'drawing',
+                    'original': d
+                })
+        display_items.sort(key=lambda x: x['name'])
     
-    display_items.sort(key=lambda x: x.get('name', ''))
+    logger.info(f"🔧 [_show_materials_list] mode = {mode}")
+    logger.info(f"🔧 [_show_materials_list] display_items содержит {len(display_items)} элементов")
+    
+    # Логируем первые 5 элементов для отладки
+    for i, item in enumerate(display_items[:5]):
+        logger.info(f"🔧   display_items[{i}]: type={item.get('type')}, name={item.get('name')}")
     
     for i, item in enumerate(display_items, 1):
         item['global_number'] = i
@@ -250,7 +293,6 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False,
     end = min(start + items_per_page, len(display_items))
     page_items = display_items[start:end]
     
-    # Логируем содержимое страницы для отладки
     logger.info(f"🔧 [_show_materials_list] Страница {page + 1}/{total_pages}, показывает {len(page_items)} элементов")
     for item in page_items:
         logger.info(f"🔧   - {item.get('type')}: {item.get('name')}")
@@ -267,15 +309,19 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False,
     text += f"Страница {page + 1} из {total_pages}\n\n"
     
     for item in page_items:
-        if item.get('type') == 'material':
-            price_str = format_price(item.get('price', 0)) if item.get('price', 0) > 0 else "не установлена"
+        item_type = item.get('type')
+        price_str = format_price(item.get('price', 0)) if item.get('price', 0) > 0 else "не установлена"
+        
+        if item_type == 'material':
             text += f"{item['global_number']}. {item['name']}: нужно {format_number(item['qty'])} шт | цена: {price_str}\n"
-        elif item.get('type') == 'node':
-            price_str = format_price(item.get('price', 0)) if item.get('price', 0) > 0 else "не установлена"
+        elif item_type == 'node':
             text += f"{item['global_number']}. {item['name']}: нужно {format_number(item['qty'])} шт | цена: {price_str}\n"
-        elif item.get('type') == 'drawing':
-            price_str = format_price(item.get('price', 0)) if item.get('price', 0) > 0 else "не установлена"
+        elif item_type == 'drawing':
             text += f"{item['global_number']}. {item['name']}: нужно {format_number(item['qty'])} чертежей | цена: {price_str}\n"
+        else:
+            # Fallback для элементов без типа
+            logger.warning(f"Элемент без типа: {item}")
+            text += f"{item['global_number']}. {item['name']}: нужно {format_number(item['qty'])} шт | цена: {price_str}\n"
     
     missing = [i for i in display_items if i.get('price', 0) == 0]
     session['missing_materials'] = missing
