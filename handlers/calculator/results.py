@@ -50,15 +50,17 @@ async def calculate_final_result(update_obj, user_id: int, is_comparison: bool =
     
     is_second_pass = session.get('is_comparison_second_pass', False)
     
-    # Сохраняем результаты первого расчёта для сравнения
-    if not is_comparison and session.get('first_calculation_completed') is None:
+    # Сохраняем результаты первого расчёта ТОЛЬКО если это первый проход и не сравнение
+    if not is_comparison and not is_second_pass and session.get('first_calculation_completed') is None:
         session['first_calculation_mode'] = calculation_mode
         session['first_calculation_tax'] = tax_rate
         session['first_calculation_completed'] = True
-        logger.info(f"Первый расчёт сохранён: режим={calculation_mode}")
+        logger.info(f"🔧 ПЕРВЫЙ расчёт сохранён: mode_raw={calculation_mode}")
+    elif is_second_pass:
+        logger.info(f"🔧 ВТОРОЙ проход сравнения, режим={calculation_mode}, НЕ перезаписываем первый расчёт")
     
     if mode == 'single':
-        await _calculate_single_result(update_obj, user_id, tax_rate, calculation_mode, is_comparison)
+        await _calculate_single_result(update_obj, user_id, tax_rate, calculation_mode, is_comparison, is_second_pass)
         if is_second_pass:
             await show_comparison_results(update_obj, user_id)
             session['is_comparison_second_pass'] = False
@@ -66,7 +68,8 @@ async def calculate_final_result(update_obj, user_id: int, is_comparison: bool =
         await _calculate_multi_result(update_obj, user_id, tax_rate, calculation_mode, is_comparison)
 
 
-async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, calculation_mode: str, is_comparison: bool):
+async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, calculation_mode: str, 
+                                    is_comparison: bool, is_second_pass: bool = False):
     """Расчёт и вывод результата для одиночного режима"""
     session = get_session(user_id)
     product = session.get('selected_product', {})
@@ -118,7 +121,7 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
     per_unit_cost = total_cost / quantity if quantity > 0 else 0
     per_unit_profit = profit_after_tax / quantity if quantity > 0 else 0
     
-    # Формируем текст с правильным названием режима
+    # Формируем текст
     mode_name = "покупка узлов" if calculation_mode == 'buy_nodes' else "производство узлов"
     text = f"📊 РЕЗУЛЬТАТЫ РАСЧЕТА\n\n"
     text += f"🏷️ ИЗДЕЛИЕ: {product.get('Наименование', '')}\n"
@@ -194,8 +197,9 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
         per_unit_cost, per_unit_profit
     )
     
-    # Сохраняем результат с правильным названием режима
-    if not is_comparison:
+    # Сохраняем результат
+    if not is_comparison and not is_second_pass:
+        # Первый расчёт
         session['first_calculation_result'] = text
         session['first_calculation_data'] = {
             'materials_cost': materials_cost,
@@ -210,13 +214,31 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
             'profit_after_tax': profit_after_tax
         }
         session['first_calculation_mode_name'] = mode_name
-        session['first_calculation_mode_raw'] = calculation_mode  # сохраняем raw режим для сравнения
+        session['first_calculation_mode_raw'] = calculation_mode
         session['product_name'] = product.get('Наименование', '')
         session['quantity'] = quantity
         session['has_nodes'] = await check_product_has_nodes(product.get('Код', ''))
-        logger.info(f"Сохранён первый расчёт: mode_name={mode_name}, mode_raw={calculation_mode}")
+        logger.info(f"🔧 ПЕРВЫЙ расчёт: mode_name={mode_name}, mode_raw={calculation_mode}")
+    elif is_second_pass:
+        # Второй расчёт (сравнение)
+        session['second_calculation_result'] = text
+        session['second_calculation_data'] = {
+            'materials_cost': materials_cost,
+            'production_cost': production_cost,
+            'drawings_cost': drawings_cost,
+            'nodes_cost': nodes_cost,
+            'node_production_cost': node_production_cost,
+            'total_cost': total_cost,
+            'revenue': revenue,
+            'profit_before_tax': profit_before_tax,
+            'tax': tax,
+            'profit_after_tax': profit_after_tax
+        }
+        session['second_calculation_mode_name'] = mode_name
+        session['second_calculation_mode_raw'] = calculation_mode
+        logger.info(f"🔧 ВТОРОЙ расчёт: mode_name={mode_name}, mode_raw={calculation_mode}")
     
-    # Сохраняем для последующего использования (второй расчёт)
+    # Сохраняем последний результат для текущего расчёта
     session['last_result_text'] = text
     session['last_calculation_data'] = {
         'materials_cost': materials_cost,
@@ -234,7 +256,7 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
     session['calculation_mode_raw'] = calculation_mode
     
     # Определяем, показывать ли кнопку сравнения (только после первого расчёта и если есть узлы)
-    show_comparison = not is_comparison and session.get('has_nodes', False) and not session.get('is_comparison_second_pass', False)
+    show_comparison = not is_comparison and not is_second_pass and session.get('has_nodes', False)
     
     await _send_result_message(
         update_obj,
@@ -248,6 +270,7 @@ async def start_comparison(query, user_id: int):
     """Начать сравнительный расчёт"""
     session = get_session(user_id)
     
+    # Определяем противоположный режим
     current_mode_raw = session.get('first_calculation_mode_raw', 'buy_nodes')
     opposite_mode = 'produce_nodes' if current_mode_raw == 'buy_nodes' else 'buy_nodes'
     
@@ -255,11 +278,13 @@ async def start_comparison(query, user_id: int):
     session['comparison_target_mode'] = opposite_mode
     session['is_comparison_second_pass'] = True
     
+    # Очищаем временные данные, но НЕ трогаем первый расчёт
     session['materials_list'] = []
     session['nodes_list'] = []
     session['drawings_list'] = []
     session['unified_price_items'] = []
     
+    # Устанавливаем новый режим расчёта
     session['calculation_mode'] = opposite_mode
     session['step'] = 'materials'
     
@@ -281,14 +306,6 @@ async def start_comparison(query, user_id: int):
 async def show_comparison_results(update_obj, user_id: int):
     """Показать результаты сравнительного расчёта (3 страницы)"""
     session = get_session(user_id)
-    
-    # Сохраняем второй расчёт
-    session['second_calculation_result'] = session.get('last_result_text', '')
-    session['second_calculation_mode_name'] = session.get('calculation_mode_name', '')
-    session['second_calculation_mode_raw'] = session.get('calculation_mode_raw', '')
-    session['second_calculation_data'] = session.get('last_calculation_data', {})
-    
-    logger.info(f"Второй расчёт сохранён: mode_name={session['second_calculation_mode_name']}")
     
     session['comparison_page'] = 0
     await _show_comparison_page(update_obj, user_id, 0)
@@ -351,6 +368,7 @@ async def _format_comparison_analysis(user_id: int) -> str:
         cheaper = None
         saving = 0
     
+    # Формируем текст
     text = f"📊 СРАВНИТЕЛЬНЫЙ АНАЛИЗ\n\n"
     text += f"🏷️ ИЗДЕЛИЕ: {product_name}\n"
     text += f"📦 КОЛИЧЕСТВО: {format_number(quantity)} шт\n\n"
