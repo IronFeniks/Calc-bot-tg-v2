@@ -184,6 +184,9 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
     
     action = data.replace(f"user_{user_id}_", "")
     
+    # ДИАГНОСТИКА
+    logger.info(f"🔧 Получен callback: action = {action}")
+    
     # ==================== ГЛОБАЛЬНЫЕ ====================
     if action == "cancel":
         await cancel_calculator(update, context, is_topic, lock)
