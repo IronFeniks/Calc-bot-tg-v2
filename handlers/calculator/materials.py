@@ -12,7 +12,7 @@ from .session import get_session
 logger = logging.getLogger(__name__)
 
 
-async def calculate_single_materials(update, user_id: int):
+async def calculate_single_materials(update_obj, user_id: int):
     """Расчёт материалов для одиночного режима"""
     session = get_session(user_id)
     excel = get_excel_handler()
@@ -27,10 +27,16 @@ async def calculate_single_materials(update, user_id: int):
     
     if efficiency is None:
         logger.error(f"efficiency is None в calculate_single_materials для пользователя {user_id}")
-        await update.message.reply_text(
-            "❌ Ошибка: не задана эффективность. Пожалуйста, начните расчёт заново с /start",
-            reply_markup=cancel_button(user_id)
-        )
+        if isinstance(update_obj, Update):
+            await update_obj.message.reply_text(
+                "❌ Ошибка: не задана эффективность. Пожалуйста, начните расчёт заново с /start",
+                reply_markup=cancel_button(user_id)
+            )
+        else:
+            await update_obj.edit_message_text(
+                "❌ Ошибка: не задана эффективность. Пожалуйста, начните расчёт заново с /start",
+                reply_markup=cancel_button(user_id)
+            )
         return
     
     saved_prices = get_all_material_prices()
@@ -61,7 +67,7 @@ async def calculate_single_materials(update, user_id: int):
                 'name': n['name'],
                 'qty': n['needed_qty'],
                 'price': n.get('price', 0),
-                'type': 'node',  # ← важно: тип должен быть 'node'
+                'type': 'node',
                 'original': n
             })
     else:
@@ -83,6 +89,11 @@ async def calculate_single_materials(update, user_id: int):
     session['nodes_list'] = nodes_list
     session['drawings_list'] = drawings_list
     session['calculation_mode'] = calculation_mode
+    
+    # Сохраняем название режима для отображения
+    mode_name = "покупка узлов" if calculation_mode == 'buy_nodes' else "производство узлов"
+    session['calculation_mode_name'] = mode_name
+    
     session['single_product_detail'] = {
         'product': product,
         'quantity': quantity,
@@ -91,8 +102,7 @@ async def calculate_single_materials(update, user_id: int):
     session['step'] = 'materials'
     session['materials_page'] = 0
     
-    # Передаём mode в _show_materials_list
-    await _show_materials_list(update, user_id, is_multi=False, mode=calculation_mode)
+    await _show_materials_list(update_obj, user_id, is_multi=False, mode=calculation_mode)
 
 
 async def calculate_multi_materials(update, user_id: int):
@@ -430,9 +440,16 @@ async def auto_prices(query, user_id: int):
         text = "🤖 АВТОМАТИЧЕСКАЯ ПОДСТАНОВКА ЦЕН\n\n"
         text += f"✅ Цены подставлены для: {len(unified_items) - len(missing)} элементов\n"
         text += f"⚠️ Нет цен для: {len(missing)} элементов\n\n"
+        
+        # Определяем тип элементов без цен
+        missing_types = set()
+        for m in missing:
+            missing_types.add(m.get('type', 'unknown'))
+        
         text += "Элементы без цен:\n"
         for m in missing[:10]:
-            text += f"• {m['name']} (нужно {format_number(m['qty'])} шт)\n"
+            item_type = "узел" if m.get('type') == 'node' else "чертеж" if m.get('type') == 'drawing' else "материал"
+            text += f"• {m['name']} ({item_type}): нужно {format_number(m['qty'])} шт\n"
         if len(missing) > 10:
             text += f"• ... и ещё {len(missing) - 10}\n\n"
         text += "Что делаем?"
@@ -471,8 +488,11 @@ async def _process_next_missing_price(update_obj, user_id: int, is_callback: boo
     
     item = items[current]
     
+    # Определяем тип элемента для подсказки
+    item_type = "узла" if item.get('type') == 'node' else "чертежа" if item.get('type') == 'drawing' else "материала"
+    
     text = f"📦 ВВОД НЕДОСТАЮЩИХ ЦЕН ({current + 1}/{len(items)})\n\n"
-    text += f"Элемент: {item['name']}\n"
+    text += f"Элемент: {item['name']} ({item_type})\n"
     text += f"Необходимое количество: {format_number(item['qty'])} шт\n\n"
     text += "Введите цену за 1 шт (ISK):"
     
