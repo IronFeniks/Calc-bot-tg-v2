@@ -19,19 +19,20 @@ async def _send_result_message(update_obj, text: str, reply_markup, parse_mode: 
     Универсальная функция отправки результата с проверкой длины сообщения
     Telegram ограничивает длину сообщения 4096 символами
     """
-    MAX_LENGTH = 4000  # Оставляем запас для кнопок и предупреждения
+    TELEGRAM_MAX_LENGTH = 4096
+    WARNING_TEXT = "\n\n⚠️ *Сообщение обрезано из-за ограничения Telegram.*"
     
-    if len(text) > MAX_LENGTH:
-        # Обрезаем сообщение и добавляем предупреждение
-        text = text[:MAX_LENGTH] + "\n\n⚠️ *Сообщение обрезано из-за ограничения Telegram (максимум 4096 символов). Для полного списка используйте пагинацию или уменьшите количество отображаемых элементов.*"
-        logger.warning(f"Сообщение обрезано: было {len(text)} символов, стало {MAX_LENGTH + 100}")
+    # Проверяем длину сообщения
+    if len(text) > TELEGRAM_MAX_LENGTH:
+        max_text_length = TELEGRAM_MAX_LENGTH - len(WARNING_TEXT)
+        text = text[:max_text_length] + WARNING_TEXT
+        logger.warning(f"Сообщение обрезано: итоговая длина {len(text)} символов (максимум {TELEGRAM_MAX_LENGTH})")
     
     if isinstance(update_obj, CallbackQuery):
         try:
             await update_obj.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
         except Exception as e:
             logger.error(f"Ошибка при редактировании сообщения: {e}")
-            # Пробуем отправить новое сообщение
             await update_obj.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
     elif hasattr(update_obj, 'message') and update_obj.message:
         await update_obj.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
@@ -48,10 +49,8 @@ async def calculate_final_result(update_obj, user_id: int, is_comparison: bool =
     tax_rate = session.get('tax', 0)
     calculation_mode = session.get('calculation_mode', 'buy_nodes')
     
-    # Проверяем, является ли это вторым проходом сравнения
     is_second_pass = session.get('is_comparison_second_pass', False)
     
-    # Сохраняем результаты первого расчёта для сравнения
     if not is_comparison and session.get('first_calculation_completed') is None:
         session['first_calculation_mode'] = calculation_mode
         session['first_calculation_tax'] = tax_rate
@@ -59,11 +58,9 @@ async def calculate_final_result(update_obj, user_id: int, is_comparison: bool =
     
     if mode == 'single':
         await _calculate_single_result(update_obj, user_id, tax_rate, calculation_mode, is_comparison)
-        
-        # Если это был второй проход сравнения, показываем страницы сравнения
         if is_second_pass:
             await show_comparison_results(update_obj, user_id)
-            session['is_comparison_second_pass'] = False  # Сбрасываем флаг
+            session['is_comparison_second_pass'] = False
     else:
         await _calculate_multi_result(update_obj, user_id, tax_rate, calculation_mode, is_comparison)
 
@@ -103,12 +100,10 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
     node_production_cost = 0
     
     if calculation_mode == 'buy_nodes':
-        # Покупка узлов
         for node in nodes_list:
             node_cost = node['needed_qty'] * node.get('price', 0)
             nodes_cost += node_cost
     else:
-        # Производство узлов
         for node in nodes_list:
             node_production_cost += node.get('total_cost', 0)
         for drawing in drawings_list:
@@ -133,8 +128,8 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
     text += f"🎯 РЕЖИМ: {mode_name}\n\n"
     text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     
-    # Материалы (ограничиваем вывод до 30 материалов для предотвращения слишком длинного сообщения)
-    max_materials_display = 30
+    # Материалы (показываем первые 15)
+    max_materials_display = 15
     if len(materials_list) > max_materials_display:
         text += f"📦 МАТЕРИАЛЫ (показаны первые {max_materials_display} из {len(materials_list)}):\n"
         display_materials = materials_list[:max_materials_display]
@@ -149,8 +144,8 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
         text += f"... и ещё {len(materials_list) - max_materials_display} материалов\n"
     text += "\n"
     
-    # Узлы или чертежи (ограничиваем вывод)
-    max_nodes_display = 20
+    # Узлы или чертежи (показываем первые 10)
+    max_nodes_display = 10
     
     if calculation_mode == 'buy_nodes' and nodes_list:
         if len(nodes_list) > max_nodes_display:
@@ -218,7 +213,6 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
         session['quantity'] = quantity
         session['has_nodes'] = await check_product_has_nodes(product.get('Код', ''))
     
-    # Сохраняем для последующего использования (второй расчёт)
     session['last_result_text'] = text
     session['last_calculation_data'] = {
         'materials_cost': materials_cost,
@@ -234,7 +228,6 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
     }
     session['calculation_mode_name'] = mode_name
     
-    # Определяем, показывать ли кнопку сравнения (только после первого расчёта)
     show_comparison = not is_comparison and session.get('has_nodes', False) and not session.get('is_comparison_second_pass', False)
     
     await _send_result_message(
@@ -249,26 +242,21 @@ async def start_comparison(query, user_id: int):
     """Начать сравнительный расчёт"""
     session = get_session(user_id)
     
-    # Определяем противоположный режим
     current_mode = session.get('calculation_mode', 'buy_nodes')
     opposite_mode = 'produce_nodes' if current_mode == 'buy_nodes' else 'buy_nodes'
     
-    # Сохраняем, что мы в режиме сравнения
     session['comparison_mode'] = True
     session['comparison_target_mode'] = opposite_mode
-    session['is_comparison_second_pass'] = True  # Флаг, что это второй проход
+    session['is_comparison_second_pass'] = True
     
-    # Очищаем старые данные материалов, чтобы пересчитать в новом режиме
     session['materials_list'] = []
     session['nodes_list'] = []
     session['drawings_list'] = []
     session['unified_price_items'] = []
     
-    # Устанавливаем новый режим расчёта
     session['calculation_mode'] = opposite_mode
-    session['step'] = 'materials'  # Переходим сразу к списку материалов
+    session['step'] = 'materials'
     
-    # Показываем сообщение о начале сравнения
     mode_name = "производство узлов" if opposite_mode == 'produce_nodes' else "покупка узлов"
     
     await query.edit_message_text(
@@ -279,7 +267,6 @@ async def start_comparison(query, user_id: int):
         reply_markup=cancel_button(user_id)
     )
     
-    # Пересчитываем материалы в новом режиме
     from .materials import calculate_single_materials
     await calculate_single_materials(query, user_id)
 
@@ -288,12 +275,10 @@ async def show_comparison_results(update_obj, user_id: int):
     """Показать результаты сравнительного расчёта (3 страницы)"""
     session = get_session(user_id)
     
-    # Сохраняем второй расчёт (результат уже в last_result_text и last_calculation_data)
     session['second_calculation_result'] = session.get('last_result_text', '')
     session['second_calculation_mode_name'] = session.get('calculation_mode_name', '')
     session['second_calculation_data'] = session.get('last_calculation_data', {})
     
-    # Показываем первую страницу (результаты первого расчёта)
     session['comparison_page'] = 0
     await _show_comparison_page(update_obj, user_id, 0)
 
@@ -303,19 +288,16 @@ async def _show_comparison_page(update_obj, user_id: int, page: int):
     session = get_session(user_id)
     
     if page == 0:
-        # Страница 1: результаты первого расчёта
         text = session.get('first_calculation_result', '')
         has_prev = False
         has_next = True
         title = "1/3"
     elif page == 1:
-        # Страница 2: результаты второго расчёта
         text = session.get('second_calculation_result', '')
         has_prev = True
         has_next = True
         title = "2/3"
     else:
-        # Страница 3: сравнительный анализ
         text = await _format_comparison_analysis(user_id)
         has_prev = True
         has_next = False
@@ -341,13 +323,11 @@ async def _format_comparison_analysis(user_id: int) -> str:
     product_name = session.get('product_name', '')
     quantity = session.get('quantity', 0)
     
-    # Расчёт разницы
     diff_materials = data1.get('materials_cost', 0) - data2.get('materials_cost', 0)
     diff_other = (data1.get('drawings_cost', 0) + data1.get('nodes_cost', 0) + data1.get('node_production_cost', 0)) - \
                  (data2.get('drawings_cost', 0) + data2.get('nodes_cost', 0) + data2.get('node_production_cost', 0))
     diff_total = data1.get('total_cost', 0) - data2.get('total_cost', 0)
     
-    # Определяем, какой режим дешевле
     if diff_total < 0:
         cheaper = mode1
         saving = abs(diff_total)
@@ -358,7 +338,6 @@ async def _format_comparison_analysis(user_id: int) -> str:
         cheaper = None
         saving = 0
     
-    # Формируем текст
     text = f"📊 СРАВНИТЕЛЬНЫЙ АНАЛИЗ\n\n"
     text += f"🏷️ ИЗДЕЛИЕ: {product_name}\n"
     text += f"📦 КОЛИЧЕСТВО: {format_number(quantity)} шт\n\n"
@@ -388,32 +367,26 @@ async def _format_comparison_analysis(user_id: int) -> str:
 
 async def _calculate_multi_result(update_obj, user_id: int, tax_rate: float, calculation_mode: str, is_comparison: bool):
     """Расчёт для множественного режима (заглушка)"""
-    # TODO: реализовать для множественного режима
     pass
 
 
 async def show_product_detail(update_obj, user_id: int, index: int):
-    """Показывает детали по конкретному изделию (множественный режим)"""
     pass
 
 
 async def next_detail(update_obj, user_id: int):
-    """Переход к следующему изделию"""
     pass
 
 
 async def prev_detail(update_obj, user_id: int):
-    """Переход к предыдущему изделию"""
     pass
 
 
 async def back_to_total_summary(update_obj, user_id: int):
-    """Возврат к общей сводке"""
     pass
 
 
 async def back_to_result(query, user_id: int):
-    """Возврат к результатам из пояснения"""
     session = get_session(user_id)
     text = session.get('last_result_text')
     keyboard = session.get('last_result_keyboard')
@@ -423,7 +396,6 @@ async def back_to_result(query, user_id: int):
 
 
 async def same_category(update_obj, user_id: int):
-    """Новый расчёт в той же категории"""
     session = get_session(user_id)
     category_path = session.get('category_path', [])
     category_tree = session.get('category_tree')
@@ -445,7 +417,6 @@ async def same_category(update_obj, user_id: int):
 
 
 async def show_explanation(update_obj, user_id: int):
-    """Показывает пояснение"""
     await _send_result_message(
         update_obj,
         format_explanation(),
