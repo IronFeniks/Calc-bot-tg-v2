@@ -37,6 +37,9 @@ async def calculate_final_result(update_obj, user_id: int, is_comparison: bool =
     tax_rate = session.get('tax', 0)
     calculation_mode = session.get('calculation_mode', 'buy_nodes')
     
+    # Проверяем, является ли это вторым проходом сравнения
+    is_second_pass = session.get('is_comparison_second_pass', False)
+    
     # Сохраняем результаты первого расчёта для сравнения
     if not is_comparison and session.get('first_calculation_completed') is None:
         session['first_calculation_mode'] = calculation_mode
@@ -45,6 +48,11 @@ async def calculate_final_result(update_obj, user_id: int, is_comparison: bool =
     
     if mode == 'single':
         await _calculate_single_result(update_obj, user_id, tax_rate, calculation_mode, is_comparison)
+        
+        # Если это был второй проход сравнения, показываем страницы сравнения
+        if is_second_pass:
+            await show_comparison_results(update_obj, user_id)
+            session['is_comparison_second_pass'] = False  # Сбрасываем флаг
     else:
         await _calculate_multi_result(update_obj, user_id, tax_rate, calculation_mode, is_comparison)
 
@@ -92,7 +100,6 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
         # Производство узлов
         for node in nodes_list:
             node_production_cost += node.get('total_cost', 0)
-        # ИСПРАВЛЕНО: используем ключ 'drawings' вместо 'qty'
         for drawing in drawings_list:
             drawings_cost += drawing['drawings'] * drawing.get('price', 0)
     
@@ -168,7 +175,7 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
         session['quantity'] = quantity
         session['has_nodes'] = await check_product_has_nodes(product.get('Код', ''))
     
-    # Сохраняем для последующего использования (например, в сравнении)
+    # Сохраняем для последующего использования (второй расчёт)
     session['last_result_text'] = text
     session['last_calculation_data'] = {
         'materials_cost': materials_cost,
@@ -184,8 +191,8 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
     }
     session['calculation_mode_name'] = mode_name
     
-    # Определяем, показывать ли кнопку сравнения
-    show_comparison = not is_comparison and session.get('has_nodes', False)
+    # Определяем, показывать ли кнопку сравнения (только после первого расчёта)
+    show_comparison = not is_comparison and session.get('has_nodes', False) and not session.get('is_comparison_second_pass', False)
     
     await _send_result_message(
         update_obj,
@@ -206,6 +213,7 @@ async def start_comparison(query, user_id: int):
     # Сохраняем, что мы в режиме сравнения
     session['comparison_mode'] = True
     session['comparison_target_mode'] = opposite_mode
+    session['is_comparison_second_pass'] = True  # Флаг, что это второй проход
     
     # Очищаем старые данные материалов, чтобы пересчитать в новом режиме
     session['materials_list'] = []
@@ -233,21 +241,21 @@ async def start_comparison(query, user_id: int):
     await calculate_single_materials(query, user_id)
 
 
-async def show_comparison_results(query, user_id: int):
+async def show_comparison_results(update_obj, user_id: int):
     """Показать результаты сравнительного расчёта (3 страницы)"""
     session = get_session(user_id)
     
-    # Сохраняем второй расчёт
+    # Сохраняем второй расчёт (результат уже в last_result_text и last_calculation_data)
     session['second_calculation_result'] = session.get('last_result_text', '')
     session['second_calculation_mode_name'] = session.get('calculation_mode_name', '')
     session['second_calculation_data'] = session.get('last_calculation_data', {})
     
     # Показываем первую страницу (результаты первого расчёта)
     session['comparison_page'] = 0
-    await _show_comparison_page(query, user_id, 0)
+    await _show_comparison_page(update_obj, user_id, 0)
 
 
-async def _show_comparison_page(query, user_id: int, page: int):
+async def _show_comparison_page(update_obj, user_id: int, page: int):
     """Показать страницу сравнения"""
     session = get_session(user_id)
     
@@ -270,10 +278,11 @@ async def _show_comparison_page(query, user_id: int, page: int):
         has_next = False
         title = "3/3"
     
-    await query.edit_message_text(
+    await _send_result_message(
+        update_obj,
         f"{text}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📄 Страница {title}",
-        reply_markup=comparison_keyboard(user_id, has_prev, has_next),
+        comparison_keyboard(user_id, has_prev, has_next),
         parse_mode='Markdown'
     )
 
