@@ -19,9 +19,10 @@ async def calculate_single_materials(update, user_id: int):
     product = session.get('selected_product', {})
     quantity = session.get('qty', 0)
     efficiency = session.get('efficiency')
-    calculation_mode = session.get('calculation_mode', 'buy_nodes')
     
-    # ДИАГНОСТИКА
+    # ДИАГНОСТИКА: читаем calculation_mode из сессии
+    calculation_mode = session.get('calculation_mode', 'buy_nodes')
+    logger.info(f"🔧 [calculate_single_materials] session['calculation_mode'] = {session.get('calculation_mode')}")
     logger.info(f"🔧 [calculate_single_materials] calculation_mode = {calculation_mode}")
     logger.info(f"🔧 [calculate_single_materials] product = {product.get('Наименование', 'Unknown')}")
     logger.info(f"🔧 [calculate_single_materials] quantity = {quantity}, efficiency = {efficiency}")
@@ -100,12 +101,7 @@ async def calculate_multi_materials(update, user_id: int):
 
 
 async def _calculate_materials(product_code: str, quantity: int, efficiency: float, excel, saved_prices, mode: str):
-    """
-    Внутренняя функция расчёта материалов
-    
-    Args:
-        mode: 'buy_nodes' - покупка узлов, 'produce_nodes' - производство узлов
-    """
+    """Внутренняя функция расчёта материалов"""
     logger.info(f"🔧 [_calculate_materials] mode = {mode}")
     
     product = excel.get_product_by_code(product_code)
