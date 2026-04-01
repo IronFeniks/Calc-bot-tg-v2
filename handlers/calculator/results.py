@@ -182,30 +182,34 @@ async def start_comparison(query, user_id: int):
     """Начать сравнительный расчёт"""
     session = get_session(user_id)
     
-    # Сохраняем, что мы в режиме сравнения
-    session['comparison_mode'] = True
-    
     # Определяем противоположный режим
     current_mode = session.get('calculation_mode', 'buy_nodes')
     opposite_mode = 'produce_nodes' if current_mode == 'buy_nodes' else 'buy_nodes'
     
-    # Сохраняем противоположный режим
+    # Сохраняем, что мы в режиме сравнения
+    session['comparison_mode'] = True
     session['comparison_target_mode'] = opposite_mode
     
+    # Очищаем старые данные материалов, чтобы пересчитать в новом режиме
+    session['materials_list'] = []
+    session['nodes_list'] = []
+    session['drawings_list'] = []
+    session['unified_price_items'] = []
+    
+    # Устанавливаем новый режим расчёта
+    session['calculation_mode'] = opposite_mode
+    session['step'] = 'materials'  # Переходим сразу к списку материалов
+    
     # Показываем сообщение о начале сравнения
+    mode_name = "производство узлов" if opposite_mode == 'produce_nodes' else "покупка узлов"
+    
     await query.edit_message_text(
-        f"🔄 Запуск сравнительного расчёта\n\n"
-        f"Текущий режим: {session.get('first_calculation_mode_name', 'неизвестен')}\n"
-        f"Будет выполнен расчёт в режиме: {'производство узлов' if opposite_mode == 'produce_nodes' else 'покупка узлов'}\n\n"
-        f"Пожалуйста, введите цены для нового режима.",
+        f"🔄 ЗАПУСК СРАВНИТЕЛЬНОГО РАСЧЁТА\n\n"
+        f"Исходный режим: {'покупка узлов' if current_mode == 'buy_nodes' else 'производство узлов'}\n"
+        f"Новый режим: {mode_name}\n\n"
+        f"Выполняется расчёт в новом режиме...",
         reply_markup=cancel_button(user_id)
     )
-    
-    # Запускаем расчёт в противоположном режиме
-    from .quantity_prices import process_drawing_price
-    # Имитируем вызов с уже введёнными параметрами
-    session['calculation_mode'] = opposite_mode
-    session['step'] = 'materials'
     
     # Пересчитываем материалы в новом режиме
     from .materials import calculate_single_materials
@@ -295,7 +299,7 @@ async def _format_comparison_analysis(user_id: int) -> str:
     
     text += "┌─────────────────────┬──────────────────┬──────────────────┬──────────────────┐\n"
     text += "│ Показатель          │ Режим 1          │ Режим 2          │ Разница (1 − 2) │\n"
-    text += "│                     │ ({:15}) │ ({:15}) │                  │\n".format(mode1[:15], mode2[:15])
+    text += f"│                     │ ({mode1[:15]}) │ ({mode2[:15]}) │                  │\n"
     text += "├─────────────────────┼──────────────────┼──────────────────┼──────────────────┤\n"
     text += f"│ Материалы           │ {format_price(data1.get('materials_cost', 0)):>16} │ {format_price(data2.get('materials_cost', 0)):>16} │ {format_price(diff_materials):>16} │\n"
     text += f"│ Узлы/Чертежи/Произ-во│ {format_price(data1.get('drawings_cost', 0) + data1.get('nodes_cost', 0) + data1.get('node_production_cost', 0)):>16} │ {format_price(data2.get('drawings_cost', 0) + data2.get('nodes_cost', 0) + data2.get('node_production_cost', 0)):>16} │ {format_price(diff_other):>16} │\n"
@@ -313,9 +317,14 @@ async def _format_comparison_analysis(user_id: int) -> str:
     return text
 
 
+async def _calculate_multi_result(update_obj, user_id: int, tax_rate: float, calculation_mode: str, is_comparison: bool):
+    """Расчёт для множественного режима (заглушка)"""
+    # TODO: реализовать для множественного режима
+    pass
+
+
 async def show_product_detail(update_obj, user_id: int, index: int):
     """Показывает детали по конкретному изделию (множественный режим)"""
-    # TODO: реализовать для множественного режима
     pass
 
 
