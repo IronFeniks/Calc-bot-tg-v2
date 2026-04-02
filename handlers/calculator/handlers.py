@@ -27,24 +27,47 @@ from handlers.auth import is_admin
 logger = logging.getLogger(__name__)
 
 
-async def start_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE, is_topic: bool, lock=None):
-    """Запуск калькулятора"""
-    user_id = update.effective_user.id
+async def _send_message(update_obj, text: str, reply_markup=None, parse_mode: str = 'Markdown'):
+    """
+    Универсальная функция отправки сообщения
+    Поддерживает как Update, так и CallbackQuery
+    """
+    if isinstance(update_obj, CallbackQuery):
+        await update_obj.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    elif hasattr(update_obj, 'message') and update_obj.message:
+        await update_obj.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    elif hasattr(update_obj, 'reply_text'):
+        await update_obj.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    else:
+        logger.error(f"Не удалось отправить сообщение: неизвестный тип {type(update_obj)}")
+
+
+async def start_calculator(update_obj, context: ContextTypes.DEFAULT_TYPE, is_topic: bool, lock=None):
+    """Запуск калькулятора (работает как из сообщения, так и из callback)"""
+    # Определяем user_id и функцию для отправки сообщения
+    if isinstance(update_obj, CallbackQuery):
+        user_id = update_obj.from_user.id
+        effective_user = update_obj.from_user
+        query = update_obj
+    else:
+        user_id = update_obj.effective_user.id
+        effective_user = update_obj.effective_user
+        query = None
     
+    # Проверка блокировки для топика
     if is_topic and lock and lock.is_locked() and lock.current_user != user_id:
         lock_info = lock.get_lock_info()
         name = lock_info['first_name'] or f"@{lock_info['username']}" if lock_info['username'] else f"ID {lock_info['user_id']}"
-        await update.message.reply_text(
-            f"⏳ *Бот занят*\n\nСейчас расчёты выполняет: *{name}*",
-            parse_mode='Markdown'
-        )
+        await _send_message(update_obj, f"⏳ *Бот занят*\n\nСейчас расчёты выполняет: *{name}*", parse_mode='Markdown')
         return
     
+    # Захват блокировки для топика
     if is_topic and lock:
-        if not lock.acquire(user_id, update.effective_user.username, update.effective_user.first_name):
-            await update.message.reply_text("❌ Не удалось начать расчёт. Попробуйте позже.")
+        if not lock.acquire(user_id, effective_user.username, effective_user.first_name):
+            await _send_message(update_obj, "❌ Не удалось начать расчёт. Попробуйте позже.")
             return
     
+    # Очищаем старую сессию
     clear_session(user_id)
     session = get_session(user_id)
     
@@ -61,11 +84,15 @@ async def start_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE, i
         else:
             instruction = INSTRUCTION_PRIVATE
     
-    await update.message.reply_text(
-        instruction,
-        reply_markup=mode_selection_keyboard(user_id),
-        parse_mode='Markdown'
-    )
+    # Если это callback, редактируем сообщение, иначе отправляем новое
+    if query:
+        await query.edit_message_text(
+            instruction,
+            reply_markup=mode_selection_keyboard(user_id),
+            parse_mode='Markdown'
+        )
+    else:
+        await _send_message(update_obj, instruction, mode_selection_keyboard(user_id), parse_mode='Markdown')
 
 
 async def select_mode(query, user_id: int, mode: str):
@@ -346,7 +373,7 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
         await show_multi_products(query, user_id, 1)
         return
     elif action == "back_to_start":
-        await start_calculator(update, context, is_topic, lock)
+        await start_calculator(query, context, is_topic, lock)
         return
     
     # ==================== СРАВНИТЕЛЬНЫЙ РАСЧЁТ ====================
@@ -372,7 +399,8 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
     
     if action == "new_calculation":
         clear_session(user_id)
-        await start_calculator(update, context, is_topic, lock)
+        # Используем query для запуска калькулятора (т.к. это callback)
+        await start_calculator(query, context, is_topic, lock)
         return
     
     logger.warning(f"Неизвестный callback: {action}")
@@ -381,15 +409,21 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
 
 async def cancel_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE, is_topic: bool, lock=None):
     """Отмена текущего расчёта"""
-    user_id = update.effective_user.id
+    # Определяем user_id в зависимости от типа входящего объекта
+    if hasattr(update, 'callback_query') and update.callback_query:
+        user_id = update.callback_query.from_user.id
+        query = update.callback_query
+    else:
+        user_id = update.effective_user.id
+        query = None
     
     if is_topic and lock and lock.current_user == user_id:
         lock.release()
     
     clear_session(user_id)
     
-    if update.callback_query:
-        await update.callback_query.edit_message_text("❌ Расчет отменен")
+    if query:
+        await query.edit_message_text("❌ Расчет отменен")
     else:
         await update.message.reply_text("❌ Расчет отменен")
 
