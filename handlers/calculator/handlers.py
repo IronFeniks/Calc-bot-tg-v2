@@ -54,14 +54,14 @@ async def start_calculator(update_obj, context: ContextTypes.DEFAULT_TYPE, is_to
         effective_user = update_obj.effective_user
         query = None
     
-    # Проверка блокировки для топика
-    if is_topic and lock and lock.is_locked() and lock.current_user != user_id:
+    # Проверка блокировки для топика (занято другим пользователем)
+    if is_topic and lock and lock.is_locked_by_other(user_id):
         lock_info = lock.get_lock_info()
         name = lock_info['first_name'] or f"@{lock_info['username']}" if lock_info['username'] else f"ID {lock_info['user_id']}"
         await _send_message(update_obj, f"⏳ *Бот занят*\n\nСейчас расчёты выполняет: *{name}*", parse_mode='Markdown')
         return
     
-    # Захват блокировки для топика
+    # Захват блокировки для топика (если свободна или принадлежит текущему пользователю)
     if is_topic and lock:
         if not lock.acquire(user_id, effective_user.username, effective_user.first_name):
             await _send_message(update_obj, "❌ Не удалось начать расчёт. Попробуйте позже.")
@@ -399,7 +399,6 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
     
     if action == "new_calculation":
         clear_session(user_id)
-        # Используем query для запуска калькулятора (т.к. это callback)
         await start_calculator(query, context, is_topic, lock)
         return
     
