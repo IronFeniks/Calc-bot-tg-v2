@@ -3,6 +3,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class UserLock:
     """
     Блокировка для работы в топике (только один пользователь)
@@ -32,21 +33,31 @@ class UserLock:
             first_name: имя пользователя
         
         Returns:
-            True если блокировка захвачена, False если уже занято
+            True если блокировка захвачена, False если уже занято другим пользователем
         """
         # Проверяем таймаут у текущего владельца
         if self.current_user and (time.time() - self.lock_time) > self.timeout:
             logger.info(f"⏰ Таймаут блокировки для пользователя {self.current_user}, освобождаем")
             self.release()
         
+        # Если блокировка свободна - захватываем
         if self.current_user is None:
             self.current_user = user_id
             self.lock_time = time.time()
             self.username = username
             self.first_name = first_name
-            logger.info(f"🔒 Блокировка захвачена пользователем {user_id} (username={username}, name={first_name})")
+            logger.info(f"🔒 Блокировка захвачена пользователем {user_id}")
             return True
         
+        # Если блокировка уже принадлежит этому же пользователю - обновляем время
+        if self.current_user == user_id:
+            self.lock_time = time.time()
+            self.username = username
+            self.first_name = first_name
+            logger.info(f"🔄 Обновлено время блокировки для пользователя {user_id}")
+            return True
+        
+        # Блокировка занята другим пользователем
         logger.info(f"❌ Попытка захватить блокировку пользователем {user_id}, но уже занято пользователем {self.current_user}")
         return False
     
@@ -60,12 +71,18 @@ class UserLock:
             self.lock_time = 0
     
     def is_locked(self) -> bool:
-        """Проверить, заблокирован ли бот"""
+        """Проверить, заблокирован ли бот другим пользователем"""
         # Автоматически проверяем таймаут
         if self.current_user and (time.time() - self.lock_time) > self.timeout:
             logger.info(f"⏰ Таймаут блокировки для пользователя {self.current_user}, освобождаем")
             self.release()
+        
+        # Возвращаем True только если есть другой пользователь
         return self.current_user is not None
+    
+    def is_locked_by_other(self, user_id: int) -> bool:
+        """Проверить, заблокирован ли бот другим пользователем"""
+        return self.current_user is not None and self.current_user != user_id
     
     def get_lock_info(self) -> dict:
         """
@@ -75,12 +92,6 @@ class UserLock:
             dict с ключами: user_id, username, first_name
             или None если блокировка свободна
         """
-        # Автоматически проверяем таймаут
-        if self.current_user and (time.time() - self.lock_time) > self.timeout:
-            logger.info(f"⏰ Таймаут блокировки для пользователя {self.current_user}, освобождаем")
-            self.release()
-            return None
-        
         if self.current_user:
             return {
                 'user_id': self.current_user,
