@@ -4,7 +4,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from keyboards.calculator import cancel_button, back_button, calculation_mode_keyboard
 from utils.formatters import parse_int_input, parse_float_input, format_price
-from price_db import get_drawing_price, save_drawing_price
+from price_db import get_drawing_price, save_drawing_price, get_market_price, save_market_price
 from .session import get_session
 from .parameters import check_product_has_nodes
 
@@ -28,8 +28,9 @@ async def process_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, u
     session['qty'] = qty
     session['step'] = 'market_price'
     
-    saved_price = get_drawing_price(product.get('Код', ''))
-    price_text = format_price(saved_price) if saved_price > 0 else "не установлена"
+    # Загружаем сохранённую рыночную цену из базы
+    saved_market_price = get_market_price(product.get('Код', ''))
+    price_text = format_price(saved_market_price) if saved_market_price > 0 else "не установлена"
     
     await update.message.reply_text(
         f"💰 РЫНОЧНАЯ ЦЕНА (1/2)\n\n"
@@ -58,8 +59,12 @@ async def process_market_price(update: Update, context: ContextTypes.DEFAULT_TYP
     session['step'] = 'drawing_price'
     
     product = session.get('selected_product', {})
-    saved_price = get_drawing_price(product.get('Код', ''))
-    price_text = format_price(saved_price) if saved_price > 0 else "не установлена"
+    
+    # Сохраняем рыночную цену в базу
+    save_market_price(product.get('Код', ''), price)
+    
+    saved_drawing_price = get_drawing_price(product.get('Код', ''))
+    price_text = format_price(saved_drawing_price) if saved_drawing_price > 0 else "не установлена"
     
     await update.message.reply_text(
         f"💰 СТОИМОСТЬ ЧЕРТЕЖА (2/2)\n\n"
@@ -105,9 +110,11 @@ async def process_drawing_price(update: Update, context: ContextTypes.DEFAULT_TY
         return
     
     product = session.get('selected_product', {})
+    
+    # Сохраняем цену чертежа в базу
     save_drawing_price(product.get('Код', ''), price)
     
-    # Проверяем, есть ли у изделия узлы
+    # Проверяем, есть ли у изделия узлы (для кнопки сравнительного расчёта)
     has_nodes = await check_product_has_nodes(product.get('Код', ''))
     session['has_nodes'] = has_nodes
     
@@ -136,7 +143,7 @@ async def process_drawing_price(update: Update, context: ContextTypes.DEFAULT_TY
         await calculate_single_materials(update, user_id)
 
 
-# ==================== МНОЖЕСТВЕННЫЙ РЕЖИМ (остаётся без изменений) ====================
+# ==================== МНОЖЕСТВЕННЫЙ РЕЖИМ ====================
 
 async def process_multi_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str):
     """Обработка ввода количества для множественного режима"""
@@ -157,8 +164,9 @@ async def process_multi_quantity(update: Update, context: ContextTypes.DEFAULT_T
     session['temp_quantity'] = qty
     session['step'] = 'multi_market_price'
     
-    saved_price = get_drawing_price(product.get('Код', ''))
-    price_text = format_price(saved_price) if saved_price > 0 else "не установлена"
+    # Загружаем сохранённую рыночную цену из базы
+    saved_market_price = get_market_price(product.get('Код', ''))
+    price_text = format_price(saved_market_price) if saved_market_price > 0 else "не установлена"
     
     logger.info(f"📦 Количество для {product['Наименование']} сохранено: {qty}, переход к рыночной цене")
     
@@ -191,8 +199,12 @@ async def process_multi_market_price(update: Update, context: ContextTypes.DEFAU
     product = session.get('current_multi_product', {})
     current_index = session.get('current_product_index', 0)
     total_products = len(session.get('multi_products', []))
-    saved_price = get_drawing_price(product.get('Код', ''))
-    price_text = format_price(saved_price) if saved_price > 0 else "не установлена"
+    
+    # Сохраняем рыночную цену в базу
+    save_market_price(product.get('Код', ''), price)
+    
+    saved_drawing_price = get_drawing_price(product.get('Код', ''))
+    price_text = format_price(saved_drawing_price) if saved_drawing_price > 0 else "не установлена"
     
     logger.info(f"💰 Рыночная цена для {product['Наименование']} сохранена: {price}, переход к стоимости чертежа")
     
@@ -232,6 +244,7 @@ async def process_multi_drawing_price(update: Update, context: ContextTypes.DEFA
         )
         return
     
+    # Сохраняем цену чертежа в базу
     save_drawing_price(product.get('Код', ''), price)
     
     product_data = {
