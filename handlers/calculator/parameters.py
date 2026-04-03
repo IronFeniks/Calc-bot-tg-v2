@@ -9,6 +9,19 @@ from .session import get_session
 logger = logging.getLogger(__name__)
 
 
+async def check_product_has_nodes(product_code: str) -> bool:
+    """Проверяет, есть ли у изделия узлы в составе"""
+    excel = get_excel_handler()
+    if not excel:
+        return False
+    specs = excel.get_specifications(product_code)
+    for spec in specs:
+        child = excel.get_product_by_code(spec['child'])
+        if child and child.get('Тип', '').lower() == 'узел':
+            return True
+    return False
+
+
 async def process_efficiency(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str):
     """Обработка ввода эффективности для одиночного режима"""
     efficiency = parse_float_input(text)
@@ -155,7 +168,6 @@ async def process_next_multi_product(update, user_id: int):
     
     logger.info(f"📦 Запрос количества для {product['Наименование']} ({index + 1}/{total})")
     
-    # Кнопка "Назад" возвращает к выбору изделий
     await update.message.reply_text(
         f"📦 КОЛИЧЕСТВО ({index + 1}/{total})\n\n"
         f"Изделие: {product['Наименование']}\n"
