@@ -333,7 +333,7 @@ async def back_to_multi_market_price(update: Update, user_id: int):
         f"Кратность: {multiplicity}\n\n"
         f"Введите рыночную цену за 1 шт (ISK):\n"
         f"(только число, без ISK)\n\n"
-        f"Текущая сохранённая цена: {price_text}\n"
+        f"Текущая сохраненная цена: {price_text}\n"
         f"Пример: 4 767 760",
         reply_markup=back_button(user_id, "multi_quantity")
     )
