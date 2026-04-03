@@ -495,3 +495,11 @@ async def process_missing_price_value(update: Update, user_id: int, text: str):
         
         session['current_material'] = current + 1
         await _process_next_missing_price(update, user_id, is_callback=False)
+# Добавьте в конец файла materials.py:
+
+async def back_to_materials(update: Update, user_id: int):
+    """Возврат к списку материалов"""
+    session = get_session(user_id)
+    session['step'] = 'materials'
+    session['materials_page'] = 0
+    await _show_materials_list(update, user_id, is_multi=False, mode=session.get('calculation_mode', 'buy_nodes'))
