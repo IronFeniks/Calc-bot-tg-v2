@@ -15,7 +15,7 @@ async def process_efficiency(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if efficiency is None or efficiency < 50 or efficiency > 150:
         await update.message.reply_text(
             "❌ Введите число от 50 до 150 (процентов)",
-            reply_markup=back_button(user_id, "categories")
+            reply_markup=back_button(user_id, "products")
         )
         return
     
@@ -30,7 +30,7 @@ async def process_efficiency(update: Update, context: ContextTypes.DEFAULT_TYPE,
         f"Введите ставку налога (%):\n"
         f"(налог рассчитывается только при положительной прибыли)\n\n"
         f"Пример: 20",
-        reply_markup=cancel_button(user_id)
+        reply_markup=back_button(user_id, "efficiency")
     )
 
 
@@ -40,7 +40,7 @@ async def process_tax(update: Update, context: ContextTypes.DEFAULT_TYPE, user_i
     if tax is None or tax < 0 or tax > 100:
         await update.message.reply_text(
             "❌ Введите число от 0 до 100 (процентов)",
-            reply_markup=back_button(user_id, "categories")
+            reply_markup=back_button(user_id, "efficiency")
         )
         return
     
@@ -59,7 +59,7 @@ async def process_tax(update: Update, context: ContextTypes.DEFAULT_TYPE, user_i
         f"Кратность: {multiplicity}\n\n"
         f"Введите количество продукции (шт):\n"
         f"(должно быть кратно {multiplicity})",
-        reply_markup=cancel_button(user_id)
+        reply_markup=back_button(user_id, "tax")
     )
 
 
@@ -69,7 +69,7 @@ async def process_multi_efficiency(update: Update, context: ContextTypes.DEFAULT
     if efficiency is None or efficiency < 50 or efficiency > 150:
         await update.message.reply_text(
             "❌ Введите число от 50 до 150 (процентов)",
-            reply_markup=back_button(user_id, "categories")
+            reply_markup=back_button(user_id, "multi_select")
         )
         return
     
@@ -84,7 +84,7 @@ async def process_multi_efficiency(update: Update, context: ContextTypes.DEFAULT
         f"Введите ставку налога (%):\n"
         f"(налог рассчитывается только при положительной прибыли)\n\n"
         f"Пример: 20",
-        reply_markup=cancel_button(user_id)
+        reply_markup=back_button(user_id, "multi_efficiency")
     )
 
 
@@ -94,7 +94,7 @@ async def process_multi_tax(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     if tax is None or tax < 0 or tax > 100:
         await update.message.reply_text(
             "❌ Введите число от 0 до 100 (процентов)",
-            reply_markup=back_button(user_id, "categories")
+            reply_markup=back_button(user_id, "multi_efficiency")
         )
         return
     
@@ -155,22 +155,68 @@ async def process_next_multi_product(update, user_id: int):
     
     logger.info(f"📦 Запрос количества для {product['Наименование']} ({index + 1}/{total})")
     
+    # Кнопка "Назад" возвращает к выбору изделий
     await update.message.reply_text(
         f"📦 КОЛИЧЕСТВО ({index + 1}/{total})\n\n"
         f"Изделие: {product['Наименование']}\n"
         f"Кратность: {multiplicity}\n\n"
         f"Введите количество продукции (шт):\n"
         f"(должно быть кратно {multiplicity})",
-        reply_markup=cancel_button(user_id)
+        reply_markup=back_button(user_id, "multi_select")
     )
 
 
-async def check_product_has_nodes(product_code: str) -> bool:
-    """Проверяет, есть ли у изделия узлы в составе"""
-    excel = get_excel_handler()
-    specs = excel.get_specifications(product_code)
-    for spec in specs:
-        child = excel.get_product_by_code(spec['child'])
-        if child and child.get('Тип', '').lower() == 'узел':
-            return True
-    return False
+async def back_to_efficiency(update: Update, user_id: int):
+    """Возврат к вводу эффективности"""
+    session = get_session(user_id)
+    session['step'] = 'efficiency'
+    
+    await update.message.reply_text(
+        f"📊 ПАРАМЕТРЫ РАСЧЁТА (1/2)\n\n"
+        f"Введите эффективность производства (%):\n"
+        f"(влияет на расход материалов)\n\n"
+        f"Пример: 110",
+        reply_markup=back_button(user_id, "products")
+    )
+
+
+async def back_to_tax(update: Update, user_id: int):
+    """Возврат к вводу налога"""
+    session = get_session(user_id)
+    session['step'] = 'tax'
+    
+    await update.message.reply_text(
+        f"📊 ПАРАМЕТРЫ РАСЧЁТА (2/2)\n\n"
+        f"Введите ставку налога (%):\n"
+        f"(налог рассчитывается только при положительной прибыли)\n\n"
+        f"Пример: 20",
+        reply_markup=back_button(user_id, "efficiency")
+    )
+
+
+async def back_to_multi_efficiency(update: Update, user_id: int):
+    """Возврат к вводу эффективности для множественного режима"""
+    session = get_session(user_id)
+    session['step'] = 'multi_efficiency'
+    
+    await update.message.reply_text(
+        f"📊 ПАРАМЕТРЫ РАСЧЁТА (1/2)\n\n"
+        f"Введите эффективность производства (%):\n"
+        f"(общая для всех изделий)\n\n"
+        f"Пример: 110",
+        reply_markup=back_button(user_id, "multi_select")
+    )
+
+
+async def back_to_multi_tax(update: Update, user_id: int):
+    """Возврат к вводу налога для множественного режима"""
+    session = get_session(user_id)
+    session['step'] = 'multi_tax'
+    
+    await update.message.reply_text(
+        f"📊 ПАРАМЕТРЫ РАСЧЁТА (2/2)\n\n"
+        f"Введите ставку налога (%):\n"
+        f"(налог рассчитывается только при положительной прибыли)\n\n"
+        f"Пример: 20",
+        reply_markup=back_button(user_id, "multi_efficiency")
+    )
