@@ -21,14 +21,13 @@ async def process_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, u
     if qty is None or qty <= 0 or qty % multiplicity != 0:
         await update.message.reply_text(
             f"❌ Количество должно быть положительным целым числом, кратным {multiplicity}",
-            reply_markup=back_button(user_id, "products")
+            reply_markup=back_button(user_id, "tax")
         )
         return
     
     session['qty'] = qty
     session['step'] = 'market_price'
     
-    # Загружаем сохранённую рыночную цену из базы
     saved_market_price = get_market_price(product.get('Код', ''))
     price_text = format_price(saved_market_price) if saved_market_price > 0 else "не установлена"
     
@@ -40,7 +39,7 @@ async def process_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, u
         f"(только число, без ISK)\n\n"
         f"Текущая сохранённая цена: {price_text}\n"
         f"Пример: 4 767 760",
-        reply_markup=cancel_button(user_id)
+        reply_markup=back_button(user_id, "quantity")
     )
 
 
@@ -50,7 +49,7 @@ async def process_market_price(update: Update, context: ContextTypes.DEFAULT_TYP
     if price is None or price < 0:
         await update.message.reply_text(
             "❌ Введите положительное число",
-            reply_markup=cancel_button(user_id)
+            reply_markup=back_button(user_id, "quantity")
         )
         return
     
@@ -59,8 +58,6 @@ async def process_market_price(update: Update, context: ContextTypes.DEFAULT_TYP
     session['step'] = 'drawing_price'
     
     product = session.get('selected_product', {})
-    
-    # Сохраняем рыночную цену в базу
     save_market_price(product.get('Код', ''), price)
     
     saved_drawing_price = get_drawing_price(product.get('Код', ''))
@@ -74,7 +71,7 @@ async def process_market_price(update: Update, context: ContextTypes.DEFAULT_TYP
         f"(сохраняется для будущих расчётов)\n\n"
         f"Текущая сохранённая цена: {price_text}\n"
         f"Пример: 5 454",
-        reply_markup=cancel_button(user_id)
+        reply_markup=back_button(user_id, "market_price")
     )
 
 
@@ -84,7 +81,7 @@ async def process_drawing_price(update: Update, context: ContextTypes.DEFAULT_TY
     if price is None or price < 0:
         await update.message.reply_text(
             "❌ Введите положительное число",
-            reply_markup=cancel_button(user_id)
+            reply_markup=back_button(user_id, "market_price")
         )
         return
     
@@ -110,17 +107,13 @@ async def process_drawing_price(update: Update, context: ContextTypes.DEFAULT_TY
         return
     
     product = session.get('selected_product', {})
-    
-    # Сохраняем цену чертежа в базу
     save_drawing_price(product.get('Код', ''), price)
     
-    # Проверяем, есть ли у изделия узлы (для кнопки сравнительного расчёта)
     has_nodes = await check_product_has_nodes(product.get('Код', ''))
     session['has_nodes'] = has_nodes
     
     logger.info(f"✅ Цена чертежа сохранена: {price}, efficiency={efficiency}, tax={tax}, has_nodes={has_nodes}")
     
-    # Если есть узлы — показываем выбор режима расчёта
     if has_nodes:
         session['step'] = 'mode_selection'
         await update.message.reply_text(
@@ -137,10 +130,48 @@ async def process_drawing_price(update: Update, context: ContextTypes.DEFAULT_TY
             reply_markup=calculation_mode_keyboard(user_id)
         )
     else:
-        # Если нет узлов, сразу переходим к расчёту
         session['calculation_mode'] = 'buy_nodes'
         from .materials import calculate_single_materials
         await calculate_single_materials(update, user_id)
+
+
+async def back_to_quantity(update: Update, user_id: int):
+    """Возврат к вводу количества"""
+    session = get_session(user_id)
+    product = session.get('selected_product', {})
+    multiplicity = product.get('Кратность', 1)
+    session['step'] = 'quantity'
+    
+    await update.message.reply_text(
+        f"📦 КОЛИЧЕСТВО\n\n"
+        f"Изделие: {product.get('Наименование', '')}\n"
+        f"Кратность: {multiplicity}\n\n"
+        f"Введите количество продукции (шт):\n"
+        f"(должно быть кратно {multiplicity})",
+        reply_markup=back_button(user_id, "tax")
+    )
+
+
+async def back_to_market_price(update: Update, user_id: int):
+    """Возврат к вводу рыночной цены"""
+    session = get_session(user_id)
+    product = session.get('selected_product', {})
+    multiplicity = product.get('Кратность', 1)
+    session['step'] = 'market_price'
+    
+    saved_price = get_market_price(product.get('Код', ''))
+    price_text = format_price(saved_price) if saved_price > 0 else "не установлена"
+    
+    await update.message.reply_text(
+        f"💰 РЫНОЧНАЯ ЦЕНА (1/2)\n\n"
+        f"Изделие: {product.get('Наименование', '')}\n"
+        f"Кратность: {multiplicity}\n\n"
+        f"Введите рыночную цену за 1 шт (ISK):\n"
+        f"(только число, без ISK)\n\n"
+        f"Текущая сохранённая цена: {price_text}\n"
+        f"Пример: 4 767 760",
+        reply_markup=back_button(user_id, "quantity")
+    )
 
 
 # ==================== МНОЖЕСТВЕННЫЙ РЕЖИМ ====================
@@ -157,14 +188,13 @@ async def process_multi_quantity(update: Update, context: ContextTypes.DEFAULT_T
     if qty is None or qty <= 0 or qty % multiplicity != 0:
         await update.message.reply_text(
             f"❌ Количество должно быть положительным целым числом, кратным {multiplicity}",
-            reply_markup=cancel_button(user_id)
+            reply_markup=back_button(user_id, "multi_tax")
         )
         return
     
     session['temp_quantity'] = qty
     session['step'] = 'multi_market_price'
     
-    # Загружаем сохранённую рыночную цену из базы
     saved_market_price = get_market_price(product.get('Код', ''))
     price_text = format_price(saved_market_price) if saved_market_price > 0 else "не установлена"
     
@@ -178,7 +208,7 @@ async def process_multi_quantity(update: Update, context: ContextTypes.DEFAULT_T
         f"(только число, без ISK)\n\n"
         f"Текущая сохранённая цена: {price_text}\n"
         f"Пример: 4 767 760",
-        reply_markup=cancel_button(user_id)
+        reply_markup=back_button(user_id, "multi_quantity")
     )
 
 
@@ -188,7 +218,7 @@ async def process_multi_market_price(update: Update, context: ContextTypes.DEFAU
     if price is None or price < 0:
         await update.message.reply_text(
             "❌ Введите положительное число",
-            reply_markup=cancel_button(user_id)
+            reply_markup=back_button(user_id, "multi_quantity")
         )
         return
     
@@ -200,7 +230,6 @@ async def process_multi_market_price(update: Update, context: ContextTypes.DEFAU
     current_index = session.get('current_product_index', 0)
     total_products = len(session.get('multi_products', []))
     
-    # Сохраняем рыночную цену в базу
     save_market_price(product.get('Код', ''), price)
     
     saved_drawing_price = get_drawing_price(product.get('Код', ''))
@@ -216,7 +245,7 @@ async def process_multi_market_price(update: Update, context: ContextTypes.DEFAU
         f"(сохраняется для будущих расчётов)\n\n"
         f"Текущая сохранённая цена: {price_text}\n"
         f"Пример: 5 454",
-        reply_markup=cancel_button(user_id)
+        reply_markup=back_button(user_id, "multi_market_price")
     )
 
 
@@ -226,7 +255,7 @@ async def process_multi_drawing_price(update: Update, context: ContextTypes.DEFA
     if price is None or price < 0:
         await update.message.reply_text(
             "❌ Введите положительное число",
-            reply_markup=cancel_button(user_id)
+            reply_markup=back_button(user_id, "multi_market_price")
         )
         return
     
@@ -244,7 +273,6 @@ async def process_multi_drawing_price(update: Update, context: ContextTypes.DEFA
         )
         return
     
-    # Сохраняем цену чертежа в базу
     save_drawing_price(product.get('Код', ''), price)
     
     product_data = {
@@ -266,3 +294,46 @@ async def process_multi_drawing_price(update: Update, context: ContextTypes.DEFA
         logger.info(f"✅ Все {total_products} изделий обработаны, переход к расчёту материалов")
         from .materials import calculate_multi_materials
         await calculate_multi_materials(update, user_id)
+
+
+async def back_to_multi_quantity(update: Update, user_id: int):
+    """Возврат к вводу количества для множественного режима"""
+    session = get_session(user_id)
+    product = session.get('current_multi_product', {})
+    current_index = session.get('current_product_index', 0)
+    total_products = len(session.get('multi_products', []))
+    multiplicity = product.get('Кратность', 1)
+    session['step'] = 'multi_quantity'
+    
+    await update.message.reply_text(
+        f"📦 КОЛИЧЕСТВО ({current_index + 1}/{total_products})\n\n"
+        f"Изделие: {product['Наименование']}\n"
+        f"Кратность: {multiplicity}\n\n"
+        f"Введите количество продукции (шт):\n"
+        f"(должно быть кратно {multiplicity})",
+        reply_markup=back_button(user_id, "multi_tax")
+    )
+
+
+async def back_to_multi_market_price(update: Update, user_id: int):
+    """Возврат к вводу рыночной цены для множественного режима"""
+    session = get_session(user_id)
+    product = session.get('current_multi_product', {})
+    current_index = session.get('current_product_index', 0)
+    total_products = len(session.get('multi_products', []))
+    multiplicity = product.get('Кратность', 1)
+    session['step'] = 'multi_market_price'
+    
+    saved_price = get_market_price(product.get('Код', ''))
+    price_text = format_price(saved_price) if saved_price > 0 else "не установлена"
+    
+    await update.message.reply_text(
+        f"💰 РЫНОЧНАЯ ЦЕНА ({current_index + 1}/{total_products})\n\n"
+        f"Изделие: {product['Наименование']}\n"
+        f"Кратность: {multiplicity}\n\n"
+        f"Введите рыночную цену за 1 шт (ISK):\n"
+        f"(только число, без ISK)\n\n"
+        f"Текущая сохранённая цена: {price_text}\n"
+        f"Пример: 4 767 760",
+        reply_markup=back_button(user_id, "multi_quantity")
+    )
