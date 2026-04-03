@@ -5,6 +5,7 @@ from config import PRICES_DB
 
 logger = logging.getLogger(__name__)
 
+
 def init_prices_db():
     """Создаёт таблицы для хранения цен, если их нет"""
     os.makedirs(os.path.dirname(PRICES_DB), exist_ok=True)
@@ -29,9 +30,21 @@ def init_prices_db():
         )
     ''')
     
+    # Таблица для рыночных цен изделий
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS market_prices (
+            product_code TEXT PRIMARY KEY,
+            price REAL DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
     conn.commit()
     conn.close()
     logger.info("✅ База данных цен инициализирована")
+
+
+# ==================== ЦЕНЫ МАТЕРИАЛОВ ====================
 
 def save_material_price(material_name: str, price: float):
     """Сохраняет цену материала"""
@@ -47,6 +60,7 @@ def save_material_price(material_name: str, price: float):
     except Exception as e:
         logger.error(f"Ошибка сохранения цены материала: {e}")
 
+
 def get_material_price(material_name: str) -> float:
     """Получает цену материала"""
     try:
@@ -59,6 +73,7 @@ def get_material_price(material_name: str) -> float:
     except Exception as e:
         logger.error(f"Ошибка получения цены материала: {e}")
         return 0
+
 
 def get_all_material_prices() -> dict:
     """Получает все цены материалов"""
@@ -73,8 +88,11 @@ def get_all_material_prices() -> dict:
         logger.error(f"Ошибка получения цен: {e}")
         return {}
 
+
+# ==================== ЦЕНЫ ЧЕРТЕЖЕЙ ИЗДЕЛИЙ ====================
+
 def save_drawing_price(product_code: str, price: float):
-    """Сохраняет цену чертежа"""
+    """Сохраняет цену чертежа изделия"""
     try:
         conn = sqlite3.connect(PRICES_DB)
         cursor = conn.cursor()
@@ -87,8 +105,9 @@ def save_drawing_price(product_code: str, price: float):
     except Exception as e:
         logger.error(f"Ошибка сохранения цены чертежа: {e}")
 
+
 def get_drawing_price(product_code: str) -> float:
-    """Получает цену чертежа"""
+    """Получает цену чертежа изделия"""
     try:
         conn = sqlite3.connect(PRICES_DB)
         cursor = conn.cursor()
@@ -98,4 +117,36 @@ def get_drawing_price(product_code: str) -> float:
         return row[0] if row else 0
     except Exception as e:
         logger.error(f"Ошибка получения цены чертежа: {e}")
+        return 0
+
+
+# ==================== РЫНОЧНЫЕ ЦЕНЫ ИЗДЕЛИЙ ====================
+
+def save_market_price(product_code: str, price: float):
+    """Сохраняет рыночную цену изделия"""
+    try:
+        conn = sqlite3.connect(PRICES_DB)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO market_prices (product_code, price, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        ''', (product_code, price))
+        conn.commit()
+        conn.close()
+        logger.info(f"✅ Рыночная цена для {product_code} сохранена: {price}")
+    except Exception as e:
+        logger.error(f"Ошибка сохранения рыночной цены: {e}")
+
+
+def get_market_price(product_code: str) -> float:
+    """Получает рыночную цену изделия"""
+    try:
+        conn = sqlite3.connect(PRICES_DB)
+        cursor = conn.cursor()
+        cursor.execute("SELECT price FROM market_prices WHERE product_code = ?", (product_code,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else 0
+    except Exception as e:
+        logger.error(f"Ошибка получения рыночной цены: {e}")
         return 0
