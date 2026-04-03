@@ -267,6 +267,53 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
     elif action == "multi_mode":
         await select_mode(query, user_id, "multi")
         return
+
+    # ==================== ОБРАБОТКА КНОПОК "НАЗАД" ====================
+if action == "back_to_products":
+    await show_products(query, user_id, 1)
+    return
+elif action == "back_to_categories":
+    await back_to_categories(query, user_id)
+    return
+elif action == "back_to_multi_select":
+    await show_multi_products(query, user_id, 1)
+    return
+elif action == "back_to_efficiency":
+    from .parameters import back_to_efficiency
+    await back_to_efficiency(update, user_id)
+    return
+elif action == "back_to_tax":
+    from .parameters import back_to_tax
+    await back_to_tax(update, user_id)
+    return
+elif action == "back_to_quantity":
+    from .quantity_prices import back_to_quantity
+    await back_to_quantity(update, user_id)
+    return
+elif action == "back_to_market_price":
+    from .quantity_prices import back_to_market_price
+    await back_to_market_price(update, user_id)
+    return
+elif action == "back_to_multi_efficiency":
+    from .parameters import back_to_multi_efficiency
+    await back_to_multi_efficiency(update, user_id)
+    return
+elif action == "back_to_multi_tax":
+    from .parameters import back_to_multi_tax
+    await back_to_multi_tax(update, user_id)
+    return
+elif action == "back_to_multi_quantity":
+    from .quantity_prices import back_to_multi_quantity
+    await back_to_multi_quantity(update, user_id)
+    return
+elif action == "back_to_multi_market_price":
+    from .quantity_prices import back_to_multi_market_price
+    await back_to_multi_market_price(update, user_id)
+    return
+elif action == "back_to_materials":
+    from .materials import back_to_materials
+    await back_to_materials(update, user_id)
+    return
     
     # ==================== НАВИГАЦИЯ ПО КАТЕГОРИЯМ ====================
     if action.startswith("categories_page_"):
