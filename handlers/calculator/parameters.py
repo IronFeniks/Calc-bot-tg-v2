@@ -1,5 +1,5 @@
 import logging
-from telegram import Update
+from telegram import Update, CallbackQuery
 from telegram.ext import ContextTypes
 from keyboards.calculator import cancel_button, back_button
 from utils.formatters import parse_float_input
@@ -178,12 +178,15 @@ async def process_next_multi_product(update, user_id: int):
     )
 
 
-async def back_to_efficiency(update: Update, user_id: int):
+# ==================== ФУНКЦИИ ДЛЯ КНОПКИ "НАЗАД" ====================
+# Все функции принимают query (CallbackQuery) вместо update
+
+async def back_to_efficiency(query: CallbackQuery, user_id: int):
     """Возврат к вводу эффективности"""
     session = get_session(user_id)
     session['step'] = 'efficiency'
     
-    await update.message.reply_text(
+    await query.edit_message_text(
         f"📊 ПАРАМЕТРЫ РАСЧЁТА (1/2)\n\n"
         f"Введите эффективность производства (%):\n"
         f"(влияет на расход материалов)\n\n"
@@ -192,12 +195,12 @@ async def back_to_efficiency(update: Update, user_id: int):
     )
 
 
-async def back_to_tax(update: Update, user_id: int):
+async def back_to_tax(query: CallbackQuery, user_id: int):
     """Возврат к вводу налога"""
     session = get_session(user_id)
     session['step'] = 'tax'
     
-    await update.message.reply_text(
+    await query.edit_message_text(
         f"📊 ПАРАМЕТРЫ РАСЧЁТА (2/2)\n\n"
         f"Введите ставку налога (%):\n"
         f"(налог рассчитывается только при положительной прибыли)\n\n"
@@ -206,12 +209,12 @@ async def back_to_tax(update: Update, user_id: int):
     )
 
 
-async def back_to_multi_efficiency(update: Update, user_id: int):
+async def back_to_multi_efficiency(query: CallbackQuery, user_id: int):
     """Возврат к вводу эффективности для множественного режима"""
     session = get_session(user_id)
     session['step'] = 'multi_efficiency'
     
-    await update.message.reply_text(
+    await query.edit_message_text(
         f"📊 ПАРАМЕТРЫ РАСЧЁТА (1/2)\n\n"
         f"Введите эффективность производства (%):\n"
         f"(общая для всех изделий)\n\n"
@@ -220,12 +223,12 @@ async def back_to_multi_efficiency(update: Update, user_id: int):
     )
 
 
-async def back_to_multi_tax(update: Update, user_id: int):
+async def back_to_multi_tax(query: CallbackQuery, user_id: int):
     """Возврат к вводу налога для множественного режима"""
     session = get_session(user_id)
     session['step'] = 'multi_tax'
     
-    await update.message.reply_text(
+    await query.edit_message_text(
         f"📊 ПАРАМЕТРЫ РАСЧЁТА (2/2)\n\n"
         f"Введите ставку налога (%):\n"
         f"(налог рассчитывается только при положительной прибыли)\n\n"
