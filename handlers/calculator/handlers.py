@@ -6,15 +6,16 @@ from .instructions import INSTRUCTION_TOPIC, INSTRUCTION_PRIVATE, INSTRUCTION_AD
 from .session import get_session, clear_session
 from .categories import show_categories, select_category, back_to_categories
 from .products import show_products, select_product_by_number, select_product_by_name, show_multi_products, toggle_product, confirm_products
-from .parameters import process_efficiency, process_tax, process_multi_efficiency, process_multi_tax
+from .parameters import process_efficiency, process_tax, process_multi_efficiency, process_multi_tax, back_to_efficiency, back_to_tax, back_to_multi_efficiency, back_to_multi_tax
 from .quantity_prices import (
     process_quantity, process_market_price, process_drawing_price,
-    process_multi_quantity, process_multi_market_price, process_multi_drawing_price
+    process_multi_quantity, process_multi_market_price, process_multi_drawing_price,
+    back_to_quantity, back_to_market_price, back_to_multi_quantity, back_to_multi_market_price
 )
 from .materials import (
     start_price_input, auto_prices, input_missing_prices,
     process_price_input_value, process_missing_price_value,
-    _show_materials_list, calculate_single_materials
+    _show_materials_list, calculate_single_materials, back_to_materials
 )
 from .results import (
     calculate_final_result, next_detail, prev_detail,
@@ -44,7 +45,6 @@ async def _send_message(update_obj, text: str, reply_markup=None, parse_mode: st
 
 async def start_calculator(update_obj, context: ContextTypes.DEFAULT_TYPE, is_topic: bool, lock=None):
     """Запуск калькулятора (работает как из сообщения, так и из callback)"""
-    # Определяем user_id и функцию для отправки сообщения
     if isinstance(update_obj, CallbackQuery):
         user_id = update_obj.from_user.id
         effective_user = update_obj.from_user
@@ -54,20 +54,17 @@ async def start_calculator(update_obj, context: ContextTypes.DEFAULT_TYPE, is_to
         effective_user = update_obj.effective_user
         query = None
     
-    # Проверка блокировки для топика (занято другим пользователем)
     if is_topic and lock and lock.is_locked_by_other(user_id):
         lock_info = lock.get_lock_info()
         name = lock_info['first_name'] or f"@{lock_info['username']}" if lock_info['username'] else f"ID {lock_info['user_id']}"
         await _send_message(update_obj, f"⏳ *Бот занят*\n\nСейчас расчёты выполняет: *{name}*", parse_mode='Markdown')
         return
     
-    # Захват блокировки для топика (если свободна или принадлежит текущему пользователю)
     if is_topic and lock:
         if not lock.acquire(user_id, effective_user.username, effective_user.first_name):
             await _send_message(update_obj, "❌ Не удалось начать расчёт. Попробуйте позже.")
             return
     
-    # Очищаем старую сессию
     clear_session(user_id)
     session = get_session(user_id)
     
@@ -84,7 +81,6 @@ async def start_calculator(update_obj, context: ContextTypes.DEFAULT_TYPE, is_to
         else:
             instruction = INSTRUCTION_PRIVATE
     
-    # Если это callback, редактируем сообщение, иначе отправляем новое
     if query:
         await query.edit_message_text(
             instruction,
@@ -211,7 +207,6 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
     
     action = data.replace(f"user_{user_id}_", "")
     
-    # ДИАГНОСТИКА
     logger.info(f"🔧 Получен callback: action = {action}")
     
     # ==================== ГЛОБАЛЬНЫЕ ====================
@@ -267,53 +262,6 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
     elif action == "multi_mode":
         await select_mode(query, user_id, "multi")
         return
-
-    # ==================== ОБРАБОТКА КНОПОК "НАЗАД" ====================
-if action == "back_to_products":
-    await show_products(query, user_id, 1)
-    return
-elif action == "back_to_categories":
-    await back_to_categories(query, user_id)
-    return
-elif action == "back_to_multi_select":
-    await show_multi_products(query, user_id, 1)
-    return
-elif action == "back_to_efficiency":
-    from .parameters import back_to_efficiency
-    await back_to_efficiency(update, user_id)
-    return
-elif action == "back_to_tax":
-    from .parameters import back_to_tax
-    await back_to_tax(update, user_id)
-    return
-elif action == "back_to_quantity":
-    from .quantity_prices import back_to_quantity
-    await back_to_quantity(update, user_id)
-    return
-elif action == "back_to_market_price":
-    from .quantity_prices import back_to_market_price
-    await back_to_market_price(update, user_id)
-    return
-elif action == "back_to_multi_efficiency":
-    from .parameters import back_to_multi_efficiency
-    await back_to_multi_efficiency(update, user_id)
-    return
-elif action == "back_to_multi_tax":
-    from .parameters import back_to_multi_tax
-    await back_to_multi_tax(update, user_id)
-    return
-elif action == "back_to_multi_quantity":
-    from .quantity_prices import back_to_multi_quantity
-    await back_to_multi_quantity(update, user_id)
-    return
-elif action == "back_to_multi_market_price":
-    from .quantity_prices import back_to_multi_market_price
-    await back_to_multi_market_price(update, user_id)
-    return
-elif action == "back_to_materials":
-    from .materials import back_to_materials
-    await back_to_materials(update, user_id)
-    return
     
     # ==================== НАВИГАЦИЯ ПО КАТЕГОРИЯМ ====================
     if action.startswith("categories_page_"):
@@ -394,6 +342,41 @@ elif action == "back_to_materials":
         await calculate_single_materials(query, user_id)
         return
     
+    # ==================== КНОПКИ "НАЗАД" ====================
+    if action == "back_to_products":
+        await show_products(query, user_id, 1)
+        return
+    elif action == "back_to_multi_select":
+        await show_multi_products(query, user_id, 1)
+        return
+    elif action == "back_to_efficiency":
+        await back_to_efficiency(update, user_id)
+        return
+    elif action == "back_to_tax":
+        await back_to_tax(update, user_id)
+        return
+    elif action == "back_to_quantity":
+        await back_to_quantity(update, user_id)
+        return
+    elif action == "back_to_market_price":
+        await back_to_market_price(update, user_id)
+        return
+    elif action == "back_to_multi_efficiency":
+        await back_to_multi_efficiency(update, user_id)
+        return
+    elif action == "back_to_multi_tax":
+        await back_to_multi_tax(update, user_id)
+        return
+    elif action == "back_to_multi_quantity":
+        await back_to_multi_quantity(update, user_id)
+        return
+    elif action == "back_to_multi_market_price":
+        await back_to_multi_market_price(update, user_id)
+        return
+    elif action == "back_to_materials":
+        await back_to_materials(update, user_id)
+        return
+    
     # ==================== РЕЗУЛЬТАТЫ ====================
     if action == "next_detail":
         await next_detail(query, user_id)
@@ -412,12 +395,6 @@ elif action == "back_to_materials":
         return
     elif action == "explain":
         await show_explanation(query, user_id)
-        return
-    elif action == "back_to_products":
-        await show_products(query, user_id, 1)
-        return
-    elif action == "back_to_multi_select":
-        await show_multi_products(query, user_id, 1)
         return
     elif action == "back_to_start":
         await start_calculator(query, context, is_topic, lock)
@@ -455,7 +432,6 @@ elif action == "back_to_materials":
 
 async def cancel_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE, is_topic: bool, lock=None):
     """Отмена текущего расчёта"""
-    # Определяем user_id в зависимости от типа входящего объекта
     if hasattr(update, 'callback_query') and update.callback_query:
         user_id = update.callback_query.from_user.id
         query = update.callback_query
