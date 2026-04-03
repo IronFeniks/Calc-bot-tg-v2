@@ -1,6 +1,6 @@
 import logging
 import math
-from telegram import Update
+from telegram import Update, CallbackQuery
 from telegram.ext import ContextTypes
 from keyboards.calculator import cancel_button, back_button, calculation_mode_keyboard
 from utils.formatters import parse_int_input, parse_float_input, format_price
@@ -135,14 +135,17 @@ async def process_drawing_price(update: Update, context: ContextTypes.DEFAULT_TY
         await calculate_single_materials(update, user_id)
 
 
-async def back_to_quantity(update: Update, user_id: int):
+# ==================== ФУНКЦИИ ДЛЯ КНОПКИ "НАЗАД" ====================
+# Все функции принимают query (CallbackQuery) вместо update
+
+async def back_to_quantity(query: CallbackQuery, user_id: int):
     """Возврат к вводу количества"""
     session = get_session(user_id)
     product = session.get('selected_product', {})
     multiplicity = product.get('Кратность', 1)
     session['step'] = 'quantity'
     
-    await update.message.reply_text(
+    await query.edit_message_text(
         f"📦 КОЛИЧЕСТВО\n\n"
         f"Изделие: {product.get('Наименование', '')}\n"
         f"Кратность: {multiplicity}\n\n"
@@ -152,7 +155,7 @@ async def back_to_quantity(update: Update, user_id: int):
     )
 
 
-async def back_to_market_price(update: Update, user_id: int):
+async def back_to_market_price(query: CallbackQuery, user_id: int):
     """Возврат к вводу рыночной цены"""
     session = get_session(user_id)
     product = session.get('selected_product', {})
@@ -162,7 +165,7 @@ async def back_to_market_price(update: Update, user_id: int):
     saved_price = get_market_price(product.get('Код', ''))
     price_text = format_price(saved_price) if saved_price > 0 else "не установлена"
     
-    await update.message.reply_text(
+    await query.edit_message_text(
         f"💰 РЫНОЧНАЯ ЦЕНА (1/2)\n\n"
         f"Изделие: {product.get('Наименование', '')}\n"
         f"Кратность: {multiplicity}\n\n"
@@ -171,6 +174,49 @@ async def back_to_market_price(update: Update, user_id: int):
         f"Текущая сохранённая цена: {price_text}\n"
         f"Пример: 4 767 760",
         reply_markup=back_button(user_id, "quantity")
+    )
+
+
+async def back_to_multi_quantity(query: CallbackQuery, user_id: int):
+    """Возврат к вводу количества для множественного режима"""
+    session = get_session(user_id)
+    product = session.get('current_multi_product', {})
+    current_index = session.get('current_product_index', 0)
+    total_products = len(session.get('multi_products', []))
+    multiplicity = product.get('Кратность', 1)
+    session['step'] = 'multi_quantity'
+    
+    await query.edit_message_text(
+        f"📦 КОЛИЧЕСТВО ({current_index + 1}/{total_products})\n\n"
+        f"Изделие: {product['Наименование']}\n"
+        f"Кратность: {multiplicity}\n\n"
+        f"Введите количество продукции (шт):\n"
+        f"(должно быть кратно {multiplicity})",
+        reply_markup=back_button(user_id, "multi_tax")
+    )
+
+
+async def back_to_multi_market_price(query: CallbackQuery, user_id: int):
+    """Возврат к вводу рыночной цены для множественного режима"""
+    session = get_session(user_id)
+    product = session.get('current_multi_product', {})
+    current_index = session.get('current_product_index', 0)
+    total_products = len(session.get('multi_products', []))
+    multiplicity = product.get('Кратность', 1)
+    session['step'] = 'multi_market_price'
+    
+    saved_price = get_market_price(product.get('Код', ''))
+    price_text = format_price(saved_price) if saved_price > 0 else "не установлена"
+    
+    await query.edit_message_text(
+        f"💰 РЫНОЧНАЯ ЦЕНА ({current_index + 1}/{total_products})\n\n"
+        f"Изделие: {product['Наименование']}\n"
+        f"Кратность: {multiplicity}\n\n"
+        f"Введите рыночную цену за 1 шт (ISK):\n"
+        f"(только число, без ISK)\n\n"
+        f"Текущая сохранённая цена: {price_text}\n"
+        f"Пример: 4 767 760",
+        reply_markup=back_button(user_id, "multi_quantity")
     )
 
 
@@ -294,46 +340,3 @@ async def process_multi_drawing_price(update: Update, context: ContextTypes.DEFA
         logger.info(f"✅ Все {total_products} изделий обработаны, переход к расчёту материалов")
         from .materials import calculate_multi_materials
         await calculate_multi_materials(update, user_id)
-
-
-async def back_to_multi_quantity(update: Update, user_id: int):
-    """Возврат к вводу количества для множественного режима"""
-    session = get_session(user_id)
-    product = session.get('current_multi_product', {})
-    current_index = session.get('current_product_index', 0)
-    total_products = len(session.get('multi_products', []))
-    multiplicity = product.get('Кратность', 1)
-    session['step'] = 'multi_quantity'
-    
-    await update.message.reply_text(
-        f"📦 КОЛИЧЕСТВО ({current_index + 1}/{total_products})\n\n"
-        f"Изделие: {product['Наименование']}\n"
-        f"Кратность: {multiplicity}\n\n"
-        f"Введите количество продукции (шт):\n"
-        f"(должно быть кратно {multiplicity})",
-        reply_markup=back_button(user_id, "multi_tax")
-    )
-
-
-async def back_to_multi_market_price(update: Update, user_id: int):
-    """Возврат к вводу рыночной цены для множественного режима"""
-    session = get_session(user_id)
-    product = session.get('current_multi_product', {})
-    current_index = session.get('current_product_index', 0)
-    total_products = len(session.get('multi_products', []))
-    multiplicity = product.get('Кратность', 1)
-    session['step'] = 'multi_market_price'
-    
-    saved_price = get_market_price(product.get('Код', ''))
-    price_text = format_price(saved_price) if saved_price > 0 else "не установлена"
-    
-    await update.message.reply_text(
-        f"💰 РЫНОЧНАЯ ЦЕНА ({current_index + 1}/{total_products})\n\n"
-        f"Изделие: {product['Наименование']}\n"
-        f"Кратность: {multiplicity}\n\n"
-        f"Введите рыночную цену за 1 шт (ISK):\n"
-        f"(только число, без ISK)\n\n"
-        f"Текущая сохраненная цена: {price_text}\n"
-        f"Пример: 4 767 760",
-        reply_markup=back_button(user_id, "multi_quantity")
-    )
