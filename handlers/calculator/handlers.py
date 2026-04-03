@@ -350,31 +350,31 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
         await show_multi_products(query, user_id, 1)
         return
     elif action == "back_to_efficiency":
-        await back_to_efficiency(update, user_id)
+        await back_to_efficiency(query, user_id)
         return
     elif action == "back_to_tax":
-        await back_to_tax(update, user_id)
+        await back_to_tax(query, user_id)
         return
     elif action == "back_to_quantity":
-        await back_to_quantity(update, user_id)
+        await back_to_quantity(query, user_id)
         return
     elif action == "back_to_market_price":
-        await back_to_market_price(update, user_id)
+        await back_to_market_price(query, user_id)
         return
     elif action == "back_to_multi_efficiency":
-        await back_to_multi_efficiency(update, user_id)
+        await back_to_multi_efficiency(query, user_id)
         return
     elif action == "back_to_multi_tax":
-        await back_to_multi_tax(update, user_id)
+        await back_to_multi_tax(query, user_id)
         return
     elif action == "back_to_multi_quantity":
-        await back_to_multi_quantity(update, user_id)
+        await back_to_multi_quantity(query, user_id)
         return
     elif action == "back_to_multi_market_price":
-        await back_to_multi_market_price(update, user_id)
+        await back_to_multi_market_price(query, user_id)
         return
     elif action == "back_to_materials":
-        await back_to_materials(update, user_id)
+        await back_to_materials(query, user_id)
         return
     
     # ==================== РЕЗУЛЬТАТЫ ====================
