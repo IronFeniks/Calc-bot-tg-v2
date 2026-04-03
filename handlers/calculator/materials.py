@@ -19,10 +19,8 @@ async def calculate_single_materials(update, user_id: int):
     product = session.get('selected_product', {})
     quantity = session.get('qty', 0)
     efficiency = session.get('efficiency')
-    
-    # ДИАГНОСТИКА: читаем calculation_mode из сессии
     calculation_mode = session.get('calculation_mode', 'buy_nodes')
-    logger.info(f"🔧 [calculate_single_materials] session['calculation_mode'] = {session.get('calculation_mode')}")
+    
     logger.info(f"🔧 [calculate_single_materials] calculation_mode = {calculation_mode}")
     logger.info(f"🔧 [calculate_single_materials] product = {product.get('Наименование', 'Unknown')}")
     logger.info(f"🔧 [calculate_single_materials] quantity = {quantity}, efficiency = {efficiency}")
@@ -97,11 +95,17 @@ async def calculate_single_materials(update, user_id: int):
 
 async def calculate_multi_materials(update, user_id: int):
     """Расчёт материалов для множественного режима"""
+    # TODO: реализовать для множественного режима
     pass
 
 
 async def _calculate_materials(product_code: str, quantity: int, efficiency: float, excel, saved_prices, mode: str):
-    """Внутренняя функция расчёта материалов"""
+    """
+    Внутренняя функция расчёта материалов
+    
+    Args:
+        mode: 'buy_nodes' - покупка узлов, 'produce_nodes' - производство узлов
+    """
     logger.info(f"🔧 [_calculate_materials] mode = {mode}")
     
     product = excel.get_product_by_code(product_code)
@@ -324,6 +328,7 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False,
 
 
 async def start_price_input(query, user_id: int):
+    """Начало пошагового ввода цен"""
     session = get_session(user_id)
     unified_items = session.get('unified_price_items', [])
     
@@ -335,6 +340,7 @@ async def start_price_input(query, user_id: int):
 
 
 async def _process_next_price(update_obj, user_id: int, is_callback: bool = True):
+    """Ввод цены для следующего элемента"""
     session = get_session(user_id)
     items = session.get('price_input_items', [])
     current = session.get('current_material', 0)
@@ -360,6 +366,7 @@ async def _process_next_price(update_obj, user_id: int, is_callback: bool = True
 
 
 async def process_price_input_value(update: Update, user_id: int, text: str):
+    """Обработка введённой цены"""
     from utils.formatters import parse_float_input
     
     price = parse_float_input(text)
@@ -399,6 +406,7 @@ async def process_price_input_value(update: Update, user_id: int, text: str):
 
 
 async def auto_prices(query, user_id: int):
+    """Автоматическая подстановка цен"""
     session = get_session(user_id)
     unified_items = session.get('unified_price_items', [])
     
@@ -425,6 +433,7 @@ async def auto_prices(query, user_id: int):
 
 
 async def input_missing_prices(query, user_id: int):
+    """Ввод только недостающих цен"""
     session = get_session(user_id)
     missing = session.get('missing_materials', [])
     
@@ -436,6 +445,7 @@ async def input_missing_prices(query, user_id: int):
 
 
 async def _process_next_missing_price(update_obj, user_id: int, is_callback: bool = True):
+    """Ввод цены для недостающего элемента"""
     session = get_session(user_id)
     items = session.get('price_input_items', [])
     current = session.get('current_material', 0)
@@ -459,6 +469,7 @@ async def _process_next_missing_price(update_obj, user_id: int, is_callback: boo
 
 
 async def process_missing_price_value(update: Update, user_id: int, text: str):
+    """Обработка введённой цены для недостающего элемента"""
     from utils.formatters import parse_float_input
     
     price = parse_float_input(text)
@@ -495,11 +506,14 @@ async def process_missing_price_value(update: Update, user_id: int, text: str):
         
         session['current_material'] = current + 1
         await _process_next_missing_price(update, user_id, is_callback=False)
-# Добавьте в конец файла materials.py:
 
-async def back_to_materials(update: Update, user_id: int):
+
+# ==================== ФУНКЦИЯ ДЛЯ КНОПКИ "НАЗАД" ====================
+
+async def back_to_materials(query: CallbackQuery, user_id: int):
     """Возврат к списку материалов"""
     session = get_session(user_id)
     session['step'] = 'materials'
     session['materials_page'] = 0
-    await _show_materials_list(update, user_id, is_multi=False, mode=session.get('calculation_mode', 'buy_nodes'))
+    mode = session.get('calculation_mode', 'buy_nodes')
+    await _show_materials_list(query, user_id, is_multi=False, mode=mode)
