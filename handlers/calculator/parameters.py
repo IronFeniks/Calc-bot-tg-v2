@@ -207,7 +207,19 @@ async def process_multi_tax(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     
     logger.info(f"✅ Налог сохранён для множественного режима: {tax}, загружено {len(products)} изделий")
     
-    await process_next_multi_product(update, user_id)
+    # Запрашиваем количество для первого изделия
+    product = products[0]
+    session['current_multi_product'] = product
+    multiplicity = product.get('Кратность', 1)
+    
+    await update.message.reply_text(
+        f"📦 КОЛИЧЕСТВО (1/{len(products)})\n\n"
+        f"Изделие: {product['Наименование']}\n"
+        f"Кратность: {multiplicity}\n\n"
+        f"Введите количество продукции (шт):\n"
+        f"(должно быть кратно {multiplicity})",
+        reply_markup=back_button(user_id, "multi_tax")
+    )
 
 
 async def skip_multi_tax(query: CallbackQuery, user_id: int):
@@ -246,7 +258,20 @@ async def skip_multi_tax(query: CallbackQuery, user_id: int):
     
     logger.info(f"✅ Налог пропущен (множественный), установлено 20 для пользователя {user_id}")
     
-    await process_next_multi_product(query, user_id, is_callback=True)
+    # Запрашиваем количество для первого изделия
+    product = products[0]
+    session['current_multi_product'] = product
+    multiplicity = product.get('Кратность', 1)
+    
+    await query.edit_message_text(
+        f"📦 КОЛИЧЕСТВО (1/{len(products)})\n\n"
+        f"✅ Налог: 20% (по умолчанию)\n\n"
+        f"Изделие: {product['Наименование']}\n"
+        f"Кратность: {multiplicity}\n\n"
+        f"Введите количество продукции (шт):\n"
+        f"(должно быть кратно {multiplicity})",
+        reply_markup=back_button(user_id, "multi_tax")
+    )
 
 
 async def process_next_multi_product(update_obj, user_id: int, is_callback: bool = False):
@@ -276,9 +301,9 @@ async def process_next_multi_product(update_obj, user_id: int, is_callback: bool
     text += f"(должно быть кратно {multiplicity})"
     
     if is_callback:
-        await update_obj.edit_message_text(text, reply_markup=back_button(user_id, "multi_select"))
+        await update_obj.edit_message_text(text, reply_markup=back_button(user_id, "multi_tax"))
     else:
-        await update_obj.message.reply_text(text, reply_markup=back_button(user_id, "multi_select"))
+        await update_obj.message.reply_text(text, reply_markup=back_button(user_id, "multi_tax"))
 
 
 # ==================== ФУНКЦИИ ДЛЯ КНОПКИ "НАЗАД" ====================
