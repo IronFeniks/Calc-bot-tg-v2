@@ -6,11 +6,16 @@ from .instructions import INSTRUCTION_TOPIC, INSTRUCTION_PRIVATE, INSTRUCTION_AD
 from .session import get_session, clear_session
 from .categories import show_categories, select_category, back_to_categories
 from .products import show_products, select_product_by_number, select_product_by_name, show_multi_products, toggle_product, confirm_products
-from .parameters import process_efficiency, process_tax, process_multi_efficiency, process_multi_tax, back_to_efficiency, back_to_tax, back_to_multi_efficiency, back_to_multi_tax
+from .parameters import (
+    process_efficiency, process_tax, process_multi_efficiency, process_multi_tax,
+    back_to_efficiency, back_to_tax, back_to_multi_efficiency, back_to_multi_tax,
+    skip_efficiency, skip_tax, skip_multi_efficiency, skip_multi_tax
+)
 from .quantity_prices import (
     process_quantity, process_market_price, process_drawing_price,
     process_multi_quantity, process_multi_market_price, process_multi_drawing_price,
-    back_to_quantity, back_to_market_price, back_to_multi_quantity, back_to_multi_market_price
+    back_to_quantity, back_to_market_price, back_to_multi_quantity, back_to_multi_market_price,
+    skip_market_price, skip_drawing_price, skip_multi_market_price, skip_multi_drawing_price
 )
 from .materials import (
     start_price_input, auto_prices, input_missing_prices,
@@ -263,6 +268,34 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
         await select_mode(query, user_id, "multi")
         return
     
+    # ==================== ПРОПУСК ЭФФЕКТИВНОСТИ И НАЛОГА ====================
+    if action == "skip_efficiency":
+        await skip_efficiency(query, user_id)
+        return
+    elif action == "skip_tax":
+        await skip_tax(query, user_id)
+        return
+    elif action == "skip_multi_efficiency":
+        await skip_multi_efficiency(query, user_id)
+        return
+    elif action == "skip_multi_tax":
+        await skip_multi_tax(query, user_id)
+        return
+    
+    # ==================== ПРОПУСК ЦЕН ====================
+    if action == "skip_market_price":
+        await skip_market_price(query, user_id)
+        return
+    elif action == "skip_drawing_price":
+        await skip_drawing_price(query, user_id)
+        return
+    elif action == "skip_multi_market_price":
+        await skip_multi_market_price(query, user_id)
+        return
+    elif action == "skip_multi_drawing_price":
+        await skip_multi_drawing_price(query, user_id)
+        return
+    
     # ==================== НАВИГАЦИЯ ПО КАТЕГОРИЯМ ====================
     if action.startswith("categories_page_"):
         page = int(action.replace("categories_page_", ""))
@@ -457,6 +490,11 @@ async def help_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE, is
 📋 РЕЖИМЫ РАСЧЁТА:
 • Одиночный — выбор одного изделия, пошаговый ввод
 • Множественный — выбор нескольких изделий, суммирование материалов
+
+⏭️ КНОПКА ПРОПУСТИТЬ:
+• Эффективность — 150% по умолчанию
+• Налог — 20% по умолчанию
+• Цены — используются сохранённые значения
 
 💾 СОХРАНЕНИЕ ЦЕН:
 • Цены вводятся один раз и сохраняются
