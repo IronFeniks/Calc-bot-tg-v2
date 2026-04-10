@@ -389,6 +389,11 @@ async def _calculate_multi_result(update_obj, user_id: int, tax_rate: float, cal
         total_cost_all, total_revenue, total_profit_before_tax, total_tax, total_profit_after_tax
     )
     
+    # Сохраняем ОБЩУЮ СВОДКУ отдельно
+    session['total_summary_text'] = text
+    session['total_summary_keyboard'] = result_keyboard(user_id, is_multi=True, current_index=-1, total_count=len(multi_result))
+    
+    # Сохраняем как последний результат
     session['last_result_text'] = text
     session['last_result_keyboard'] = result_keyboard(user_id, is_multi=True, current_index=-1, total_count=len(multi_result))
     
@@ -422,9 +427,12 @@ async def show_product_detail(update_obj, user_id: int, index: int):
         item['total_cost'], item['revenue'], item['profit_before_tax'], item['tax'], item['profit_after_tax']
     )
     
+    # Обновляем last_result для кнопки "Назад к результатам" (будет возвращать к детализации)
     session['last_result_text'] = text
     session['last_result_keyboard'] = result_keyboard(user_id, is_multi=True, current_index=index, total_count=len(multi_result))
     session['result_page'] = index
+    
+    # НЕ перезаписываем total_summary_text — он остаётся для кнопки "Общая сводка"
     
     await _send_result_message(
         update_obj,
@@ -465,15 +473,30 @@ async def prev_detail(query: CallbackQuery, user_id: int):
 async def back_to_total_summary(query: CallbackQuery, user_id: int):
     """Возврат к общей сводке в множественном режиме"""
     session = get_session(user_id)
-    text = session.get('last_result_text')
+    text = session.get('total_summary_text')
+    keyboard = session.get('total_summary_keyboard')
     
-    if text:
-        await _send_result_message(
-            query,
-            text,
-            result_keyboard(user_id, is_multi=True, current_index=-1, total_count=len(session.get('multi_result', []))),
-            parse_mode='Markdown'
-        )
+    if not text:
+        await query.answer("❌ Нет сохранённой сводки", show_alert=True)
+        return
+    
+    # Проверяем, совпадает ли текущий текст
+    current_text = query.message.text if query.message else ""
+    
+    if current_text == text:
+        await query.answer("Вы уже на странице общей сводки")
+        return
+    
+    try:
+        await query.edit_message_text(text, reply_markup=keyboard, parse_mode='Markdown')
+        # Обновляем last_result, чтобы кнопка "Назад к результатам" работала корректно
+        session['last_result_text'] = text
+        session['last_result_keyboard'] = keyboard
+        session['result_page'] = -1
+    except Exception as e:
+        logger.error(f"Ошибка при возврате к сводке: {e}")
+        await query.message.reply_text(text, reply_markup=keyboard, parse_mode='Markdown')
+        await query.answer()
 
 
 async def start_comparison(query, user_id: int):
@@ -612,19 +635,16 @@ async def back_to_result(query: CallbackQuery, user_id: int):
         await query.answer("❌ Нет сохранённого результата", show_alert=True)
         return
     
-    # Проверяем, совпадает ли текущий текст с сохраняемым
     current_text = query.message.text if query.message else ""
     
     if current_text == text:
-        # Текст уже совпадает, просто отвечаем на callback
-        await query.answer("Вы уже на странице результатов")
+        await query.answer("Вы уже на этой странице")
         return
     
     try:
         await query.edit_message_text(text, reply_markup=keyboard, parse_mode='Markdown')
     except Exception as e:
         logger.error(f"Ошибка при возврате к результату: {e}")
-        # Если не удалось отредактировать, отправляем новое сообщение
         await query.message.reply_text(text, reply_markup=keyboard, parse_mode='Markdown')
         await query.answer()
 
@@ -643,7 +663,6 @@ async def same_category(update_obj, user_id: int):
     
     path_str = " > ".join(category_path) if category_path else ""
     
-    # Используем правильную клавиатуру в зависимости от режима
     if mode == 'single':
         reply_markup = back_with_skip_button(user_id, "products", "skip_efficiency")
     else:
@@ -664,9 +683,7 @@ async def show_explanation(update_obj, user_id: int):
     """Показать пояснение"""
     session = get_session(user_id)
     
-    # Сохраняем текущий результат как last_result, если он ещё не сохранён
     if not session.get('last_result_text'):
-        # Если пояснение вызвано до показа результатов, сохраняем заглушку
         session['last_result_text'] = "📊 РЕЗУЛЬТАТЫ РАСЧЕТА\n\nРасчёт ещё не выполнен."
         session['last_result_keyboard'] = cancel_button(user_id)
     
@@ -674,5 +691,5 @@ async def show_explanation(update_obj, user_id: int):
         update_obj,
         format_explanation(),
         explanation_keyboard(user_id),
-        parse_mode=None  # Без Markdown-разметки, чтобы избежать ошибок парсинга
+        parse_mode=None
     )
