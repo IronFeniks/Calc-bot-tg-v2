@@ -2,7 +2,7 @@ import logging
 import math
 from telegram import Update, CallbackQuery
 from telegram.ext import ContextTypes
-from keyboards.calculator import cancel_button, back_button, back_with_skip_button
+from keyboards.calculator import cancel_button, back_button, back_with_skip_button, calculation_mode_keyboard
 from utils.formatters import parse_int_input, parse_float_input, format_price
 from price_db import get_drawing_price, save_drawing_price, get_market_price, save_market_price
 from .session import get_session
@@ -169,8 +169,6 @@ async def _finalize_drawing_price(update_obj, user_id: int, price: float, is_cal
     
     logger.info(f"✅ Цена чертежа сохранена: {price}, efficiency={efficiency}, tax={tax}, has_nodes={has_nodes}")
     
-    from keyboards.calculator import calculation_mode_keyboard
-    
     if has_nodes:
         session['step'] = 'mode_selection'
         text = ("📊 ВЫБОР РЕЖИМА РАСЧЁТА МАТЕРИАЛОВ\n\n"
@@ -183,7 +181,7 @@ async def _finalize_drawing_price(update_obj, user_id: int, price: float, is_cal
                 "   Показывает только итоговый список материалов.\n"
                 "   Узлы производятся самостоятельно.\n\n"
                 "Выберите режим:")
-        reply_markup = calculation_mode_keyboard(user_id)
+        reply_markup = calculation_mode_keyboard(user_id, is_multi=False)
     else:
         session['calculation_mode'] = 'buy_nodes'
         from .materials import calculate_single_materials
@@ -453,9 +451,40 @@ async def _finalize_multi_drawing_price(update_obj, user_id: int, price: float, 
     logger.info(f"✅ Данные для {product['Наименование']} сохранены ({current_index + 1}/{total_products})")
     
     if session['current_product_index'] < total_products:
+        # Ещё есть изделия для ввода
         from .parameters import process_next_multi_product
         await process_next_multi_product(update_obj, user_id, is_callback=is_callback)
     else:
-        logger.info(f"✅ Все {total_products} изделий обработаны, переход к расчёту материалов")
-        from .materials import calculate_multi_materials
-        await calculate_multi_materials(update_obj, user_id)
+        # Все изделия обработаны, проверяем наличие узлов
+        has_any_nodes = False
+        for p_data in session['multi_products_data']:
+            if await check_product_has_nodes(p_data['product'].get('Код', '')):
+                has_any_nodes = True
+                break
+        
+        if has_any_nodes:
+            # Показываем выбор режима расчёта
+            session['step'] = 'multi_mode_selection'
+            text = ("📊 ВЫБОР РЕЖИМА РАСЧЁТА МАТЕРИАЛОВ\n\n"
+                    "Как будем считать?\n\n"
+                    "🏭 Как в игре\n"
+                    "   Показывает материалы из изделий и узлы.\n"
+                    "   Узлы покупаются готовыми, их материалы не суммируются.\n\n"
+                    "📊 По материалам\n"
+                    "   Суммирует все материалы (из изделий + из узлов).\n"
+                    "   Показывает только итоговый список материалов.\n"
+                    "   Узлы производятся самостоятельно.\n\n"
+                    "Выберите режим:")
+            from keyboards.calculator import calculation_mode_keyboard
+            reply_markup = calculation_mode_keyboard(user_id, is_multi=True)
+            
+            if is_callback:
+                await update_obj.edit_message_text(text, reply_markup=reply_markup)
+            else:
+                await update_obj.message.reply_text(text, reply_markup=reply_markup)
+        else:
+            # Нет узлов, сразу запускаем расчёт в режиме buy_nodes
+            session['calculation_mode'] = 'buy_nodes'
+            logger.info(f"✅ Все {total_products} изделий обработаны, переход к расчёту материалов (нет узлов)")
+            from .materials import calculate_multi_materials
+            await calculate_multi_materials(update_obj, user_id)
