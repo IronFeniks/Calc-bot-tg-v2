@@ -85,20 +85,37 @@ async def start_calculator(update_obj, context: ContextTypes.DEFAULT_TYPE, is_to
     
     if is_topic:
         instruction = INSTRUCTION_TOPIC
+        # В топике сразу показываем выбор режима (одиночный/множественный)
+        if query:
+            await query.edit_message_text(
+                instruction,
+                reply_markup=mode_selection_keyboard(user_id),
+                parse_mode='Markdown'
+            )
+        else:
+            await _send_message(update_obj, instruction, mode_selection_keyboard(user_id), parse_mode='Markdown')
     else:
         if is_admin(user_id):
-            instruction = INSTRUCTION_ADMIN
+            # Админ в личке — показываем меню выбора (Калькулятор / Админка)
+            from keyboards.admin import mode_selection_keyboard as admin_mode_keyboard
+            if query:
+                await query.edit_message_text(
+                    INSTRUCTION_ADMIN,
+                    reply_markup=admin_mode_keyboard(user_id),
+                    parse_mode='Markdown'
+                )
+            else:
+                await _send_message(update_obj, INSTRUCTION_ADMIN, admin_mode_keyboard(user_id), parse_mode='Markdown')
         else:
-            instruction = INSTRUCTION_PRIVATE
-    
-    if query:
-        await query.edit_message_text(
-            instruction,
-            reply_markup=mode_selection_keyboard(user_id),
-            parse_mode='Markdown'
-        )
-    else:
-        await _send_message(update_obj, instruction, mode_selection_keyboard(user_id), parse_mode='Markdown')
+            # Обычный пользователь в личке — сразу показываем выбор режима калькулятора
+            if query:
+                await query.edit_message_text(
+                    INSTRUCTION_PRIVATE,
+                    reply_markup=mode_selection_keyboard(user_id),
+                    parse_mode='Markdown'
+                )
+            else:
+                await _send_message(update_obj, INSTRUCTION_PRIVATE, mode_selection_keyboard(user_id), parse_mode='Markdown')
 
 
 async def select_mode(query, user_id: int, mode: str):
@@ -238,36 +255,12 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
     
     # ==================== ВЫБОР РЕЖИМА (для админа в личке) ====================
     if action == "mode_calculator":
-        session = get_session(user_id)
-        session['mode'] = 'single'
-        session['step'] = 'categories'
-        session['category_path'] = []
-        
-        tree = session.get('category_tree', {})
-        
-        # Если дерево пустое — пробуем загрузить заново
-        if not tree:
-            excel = get_excel_handler()
-            if excel:
-                tree = excel.get_category_tree()
-                session['category_tree'] = tree
-                logger.info(f"🔄 Дерево категорий перезагружено в mode_calculator для пользователя {user_id}")
-        
-        categories = list(tree.keys()) if tree else []
-        
-        if categories:
-            total_pages = (len(categories) + 9) // 10
-            page_categories = categories[:10]
-            
-            await query.edit_message_text(
-                "📂 ВЫБОР КАТЕГОРИИ\n\nДоступные категории:",
-                reply_markup=categories_keyboard(page_categories, user_id, 1, total_pages)
-            )
-        else:
-            await query.edit_message_text(
-                "❌ Нет доступных категорий",
-                reply_markup=cancel_button(user_id)
-            )
+        # Показываем выбор между одиночным и множественным режимом
+        await query.edit_message_text(
+            INSTRUCTION_PRIVATE,
+            reply_markup=mode_selection_keyboard(user_id),
+            parse_mode='Markdown'
+        )
         return
     
     if action == "mode_admin":
