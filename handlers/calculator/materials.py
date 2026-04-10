@@ -43,7 +43,6 @@ async def calculate_single_materials(update, user_id: int):
     logger.info(f"🔧 [calculate_single_materials] nodes_list: {len(nodes_list)} шт")
     logger.info(f"🔧 [calculate_single_materials] drawings_list: {len(drawings_list)} шт")
     
-    # Унифицируем структуру для ввода цен
     unified_items = []
     for m in materials_list:
         unified_items.append({
@@ -93,10 +92,119 @@ async def calculate_single_materials(update, user_id: int):
     await _show_materials_list(update, user_id, is_multi=False, mode=calculation_mode)
 
 
-async def calculate_multi_materials(update, user_id: int):
+async def calculate_multi_materials(update_obj, user_id: int):
     """Расчёт материалов для множественного режима"""
-    # TODO: реализовать для множественного режима
-    pass
+    session = get_session(user_id)
+    excel = get_excel_handler()
+    products_data = session.get('multi_products_data', [])
+    efficiency = session.get('efficiency')
+    calculation_mode = session.get('calculation_mode', 'buy_nodes')
+    
+    if not products_data:
+        logger.error(f"Нет данных о продуктах для множественного режима у пользователя {user_id}")
+        if isinstance(update_obj, CallbackQuery):
+            await update_obj.edit_message_text("❌ Нет выбранных изделий", reply_markup=cancel_button(user_id))
+        else:
+            await update_obj.message.reply_text("❌ Нет выбранных изделий", reply_markup=cancel_button(user_id))
+        return
+    
+    logger.info(f"🔧 [calculate_multi_materials] Расчёт для {len(products_data)} изделий")
+    
+    saved_prices = get_all_material_prices()
+    
+    all_materials = []
+    all_nodes = []
+    all_drawings = []
+    products_with_details = []
+    
+    for p_data in products_data:
+        product = p_data['product']
+        quantity = p_data['quantity']
+        
+        materials_list, nodes_list, drawings_list = await _calculate_materials(
+            product['Код'], quantity, efficiency, excel, saved_prices, calculation_mode
+        )
+        
+        all_materials.extend(materials_list)
+        all_nodes.extend(nodes_list)
+        all_drawings.extend(drawings_list)
+        
+        products_with_details.append({
+            'product': product,
+            'quantity': quantity,
+            'market_price': p_data['market_price'],
+            'drawing_price': p_data['drawing_price'],
+            'materials': materials_list,
+            'nodes': nodes_list,
+            'drawings': drawings_list,
+            'drawings_needed': math.ceil(quantity / product.get('Кратность', 1))
+        })
+    
+    # Объединяем одинаковые материалы
+    merged_materials = merge_materials(all_materials)
+    
+    # Объединяем одинаковые узлы
+    merged_nodes = {}
+    for node in all_nodes:
+        name = node['name']
+        if name not in merged_nodes:
+            merged_nodes[name] = node.copy()
+            merged_nodes[name]['needed_qty'] = 0
+        merged_nodes[name]['needed_qty'] += node['needed_qty']
+    merged_nodes_list = list(merged_nodes.values())
+    
+    # Объединяем чертежи
+    merged_drawings = {}
+    for d in all_drawings:
+        name = d['name']
+        if name not in merged_drawings:
+            merged_drawings[name] = d.copy()
+            merged_drawings[name]['drawings'] = 0
+        merged_drawings[name]['drawings'] += d['drawings']
+    merged_drawings_list = list(merged_drawings.values())
+    
+    unified_items = []
+    for m in merged_materials:
+        unified_items.append({
+            'name': m['name'],
+            'qty': m['qty'],
+            'price': m.get('price', 0),
+            'type': 'material',
+            'original': m
+        })
+    
+    if calculation_mode == 'buy_nodes':
+        for n in merged_nodes_list:
+            unified_items.append({
+                'name': n['name'],
+                'qty': n['needed_qty'],
+                'price': n.get('price', 0),
+                'type': 'node',
+                'original': n
+            })
+    else:
+        for d in merged_drawings_list:
+            unified_items.append({
+                'name': d['name'],
+                'qty': d['drawings'],
+                'price': d.get('price', 0),
+                'type': 'drawing',
+                'original': d
+            })
+    
+    unified_items.sort(key=lambda x: x['name'])
+    
+    session['materials_list'] = merged_materials
+    session['nodes_list'] = merged_nodes_list
+    session['drawings_list'] = merged_drawings_list
+    session['unified_price_items'] = unified_items
+    session['products_with_details'] = products_with_details
+    session['step'] = 'materials'
+    session['materials_page'] = 0
+    
+    logger.info(f"🔧 [calculate_multi_materials] ИТОГ: материалов={len(merged_materials)}, узлов={len(merged_nodes_list)}, чертежей={len(merged_drawings_list)}")
+    
+    await _show_materials_list(update_obj, user_id, is_multi=True, mode=calculation_mode)
 
 
 async def _calculate_materials(product_code: str, quantity: int, efficiency: float, excel, saved_prices, mode: str):
@@ -268,9 +376,9 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False,
     if not display_items:
         text = "❌ Для выбранного изделия не найдено материалов или узлов в базе данных."
         if isinstance(update_obj, CallbackQuery):
-            await update_obj.edit_message_text(text, reply_markup=back_button(user_id, "products"))
+            await update_obj.edit_message_text(text, reply_markup=back_button(user_id, "products" if not is_multi else "multi_select"))
         else:
-            await update_obj.message.reply_text(text, reply_markup=back_button(user_id, "products"))
+            await update_obj.message.reply_text(text, reply_markup=back_button(user_id, "products" if not is_multi else "multi_select"))
         return
     
     items_per_page = 15
@@ -291,8 +399,12 @@ async def _show_materials_list(update_obj, user_id: int, is_multi: bool = False,
     else:
         text += "ЧЕРТЕЖИ\n\n"
     
-    product = session.get('selected_product', {})
-    text += f"Изделие: {product.get('Наименование', '')}\n"
+    if not is_multi:
+        product = session.get('selected_product', {})
+        text += f"Изделие: {product.get('Наименование', '')}\n"
+    else:
+        text += f"Всего изделий: {len(session.get('products_with_details', []))}\n"
+    
     text += f"Эффективность: {session.get('efficiency', 150)}%\n\n"
     text += f"Страница {page + 1} из {total_pages}\n\n"
     
@@ -508,12 +620,11 @@ async def process_missing_price_value(update: Update, user_id: int, text: str):
         await _process_next_missing_price(update, user_id, is_callback=False)
 
 
-# ==================== ФУНКЦИЯ ДЛЯ КНОПКИ "НАЗАД" ====================
-
 async def back_to_materials(query: CallbackQuery, user_id: int):
     """Возврат к списку материалов"""
     session = get_session(user_id)
     session['step'] = 'materials'
     session['materials_page'] = 0
     mode = session.get('calculation_mode', 'buy_nodes')
-    await _show_materials_list(query, user_id, is_multi=False, mode=mode)
+    is_multi = session.get('mode') == 'multi'
+    await _show_materials_list(query, user_id, is_multi=is_multi, mode=mode)
