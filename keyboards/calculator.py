@@ -63,6 +63,16 @@ def back_button(user_id: int, to: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+def back_with_skip_button(user_id: int, to: str, skip_action: str) -> InlineKeyboardMarkup:
+    """Кнопка назад с возможностью пропустить"""
+    keyboard = [
+        [InlineKeyboardButton("⏭️ Пропустить", callback_data=make_callback(user_id, skip_action))],
+        [InlineKeyboardButton("🔙 Назад", callback_data=make_callback(user_id, f"back_to_{to}"))],
+        [InlineKeyboardButton("❌ Отмена", callback_data=make_callback(user_id, "cancel"))]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def navigation_buttons(user_id: int, page: int, total_pages: int, action: str) -> list:
     nav_row = []
     if page > 1:
