@@ -1,7 +1,7 @@
 import logging
 from telegram import Update, CallbackQuery
 from telegram.ext import ContextTypes
-from keyboards.calculator import products_keyboard, multi_select_products_keyboard, back_button, cancel_button, restore_callback_data
+from keyboards.calculator import products_keyboard, multi_select_products_keyboard, back_button, cancel_button, back_with_skip_button, restore_callback_data
 from utils.formatters import format_category_path
 from excel_handler import get_excel_handler
 from .session import get_session
@@ -115,8 +115,9 @@ async def select_product_by_name(update_obj, user_id: int, product_name_or_hash:
         f"📊 ПАРАМЕТРЫ РАСЧЁТА (1/2)\n\n"
         f"Введите эффективность производства (%):\n"
         f"(влияет на расход материалов)\n\n"
-        f"Пример: 110",
-        cancel_button(user_id)
+        f"Пример: 110\n\n"
+        f"По умолчанию: 150%",
+        back_with_skip_button(user_id, "products", "skip_efficiency")
     )
 
 
@@ -216,8 +217,9 @@ async def confirm_products(query, user_id: int):
         f"📊 ПАРАМЕТРЫ РАСЧЁТА (1/2)\n\n"
         f"Введите эффективность производства (%):\n"
         f"(общая для всех изделий)\n\n"
-        f"Пример: 110",
-        reply_markup=cancel_button(user_id)
+        f"Пример: 110\n\n"
+        f"По умолчанию: 150%",
+        reply_markup=back_with_skip_button(user_id, "multi_select", "skip_multi_efficiency")
     )
 
 
