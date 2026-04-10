@@ -188,6 +188,9 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
         per_unit_cost, per_unit_profit
     )
     
+    # Определяем, показывать ли кнопку сравнения (ДОЛЖНО БЫТЬ ОПРЕДЕЛЕНО ДО ИСПОЛЬЗОВАНИЯ)
+    show_comparison = not is_comparison and not is_second_pass and session.get('has_nodes', False)
+    
     if not is_comparison and not is_second_pass:
         session['first_calculation_result'] = text
         session['first_calculation_data'] = {
@@ -226,6 +229,7 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
         session['second_calculation_mode_raw'] = calculation_mode
         logger.info(f"🔧 ВТОРОЙ расчёт: mode_name={mode_name}, mode_raw={calculation_mode}")
     
+    # Сохраняем последний результат
     session['last_result_text'] = text
     session['last_result_keyboard'] = result_keyboard(user_id, is_multi=False, show_comparison=show_comparison)
     session['last_calculation_data'] = {
@@ -242,8 +246,6 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
     }
     session['calculation_mode_name'] = mode_name
     session['calculation_mode_raw'] = calculation_mode
-    
-    show_comparison = not is_comparison and not is_second_pass and session.get('has_nodes', False)
     
     await _send_result_message(
         update_obj,
