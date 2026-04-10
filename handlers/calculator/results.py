@@ -176,7 +176,7 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
         if node_production_cost > 0:
             text += "🏭 ПРОИЗВОДСТВО УЗЛОВ (фиксированная стоимость):\n"
             for node in nodes_list[:max_nodes_display]:
-                text += f"• {node['name']}: {format_number(node['drawings'])} чертежей × {format_price(node['price_per_drawing'])} = {format_price(node['total_cost'])}\n"
+                text += f"• {node['name']}: {format_number(node['drawings'])} чертежей x {format_price(node['price_per_drawing'])} = {format_price(node['total_cost'])}\n"
             if len(nodes_list) > max_nodes_display:
                 text += f"... и ещё {len(nodes_list) - max_nodes_display} узлов\n"
             text += "\n"
@@ -638,5 +638,5 @@ async def show_explanation(update_obj, user_id: int):
         update_obj,
         format_explanation(),
         explanation_keyboard(user_id),
-        parse_mode='Markdown'
+        parse_mode=None  # Без Markdown-разметки, чтобы избежать ошибок парсинга
     )
