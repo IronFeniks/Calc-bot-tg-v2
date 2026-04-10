@@ -446,14 +446,31 @@ async def _finalize_multi_drawing_price(update_obj, user_id: int, price: float, 
     }
     
     session['multi_products_data'].append(product_data)
-    session['current_product_index'] = current_index + 1
     
     logger.info(f"✅ Данные для {product['Наименование']} сохранены ({current_index + 1}/{total_products})")
     
-    if session['current_product_index'] < total_products:
-        # Ещё есть изделия для ввода
-        from .parameters import process_next_multi_product
-        await process_next_multi_product(update_obj, user_id, is_callback=is_callback)
+    # Переходим к следующему изделию
+    next_index = current_index + 1
+    session['current_product_index'] = next_index
+    
+    if next_index < total_products:
+        # Ещё есть изделия для ввода - запрашиваем количество для следующего
+        next_product = session.get('multi_products', [])[next_index]
+        session['current_multi_product'] = next_product
+        session['step'] = 'multi_quantity'
+        
+        multiplicity = next_product.get('Кратность', 1)
+        
+        text = f"📦 КОЛИЧЕСТВО ({next_index + 1}/{total_products})\n\n"
+        text += f"Изделие: {next_product['Наименование']}\n"
+        text += f"Кратность: {multiplicity}\n\n"
+        text += f"Введите количество продукции (шт):\n"
+        text += f"(должно быть кратно {multiplicity})"
+        
+        if is_callback:
+            await update_obj.edit_message_text(text, reply_markup=back_button(user_id, "multi_tax"))
+        else:
+            await update_obj.message.reply_text(text, reply_markup=back_button(user_id, "multi_tax"))
     else:
         # Все изделия обработаны, проверяем наличие узлов
         has_any_nodes = False
