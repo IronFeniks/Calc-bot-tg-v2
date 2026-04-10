@@ -227,6 +227,7 @@ async def _calculate_single_result(update_obj, user_id: int, tax_rate: float, ca
         logger.info(f"🔧 ВТОРОЙ расчёт: mode_name={mode_name}, mode_raw={calculation_mode}")
     
     session['last_result_text'] = text
+    session['last_result_keyboard'] = result_keyboard(user_id, is_multi=False, show_comparison=show_comparison)
     session['last_calculation_data'] = {
         'materials_cost': materials_cost,
         'production_cost': production_cost,
@@ -599,14 +600,31 @@ async def _format_comparison_analysis(user_id: int) -> str:
     return text
 
 
-async def back_to_result(query, user_id: int):
+async def back_to_result(query: CallbackQuery, user_id: int):
     """Возврат к последнему результату"""
     session = get_session(user_id)
     text = session.get('last_result_text')
     keyboard = session.get('last_result_keyboard')
     
-    if text and keyboard:
+    if not text or not keyboard:
+        await query.answer("❌ Нет сохранённого результата", show_alert=True)
+        return
+    
+    # Проверяем, совпадает ли текущий текст с сохраняемым
+    current_text = query.message.text if query.message else ""
+    
+    if current_text == text:
+        # Текст уже совпадает, просто отвечаем на callback
+        await query.answer("Вы уже на странице результатов")
+        return
+    
+    try:
         await query.edit_message_text(text, reply_markup=keyboard, parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f"Ошибка при возврате к результату: {e}")
+        # Если не удалось отредактировать, отправляем новое сообщение
+        await query.message.reply_text(text, reply_markup=keyboard, parse_mode='Markdown')
+        await query.answer()
 
 
 async def same_category(update_obj, user_id: int):
@@ -617,9 +635,17 @@ async def same_category(update_obj, user_id: int):
     mode = session.get('mode')
     
     from .session import reset_session_for_new_calculation
+    from keyboards.calculator import back_with_skip_button
+    
     reset_session_for_new_calculation(user_id, mode, category_path, category_tree)
     
     path_str = " > ".join(category_path) if category_path else ""
+    
+    # Используем правильную клавиатуру в зависимости от режима
+    if mode == 'single':
+        reply_markup = back_with_skip_button(user_id, "products", "skip_efficiency")
+    else:
+        reply_markup = back_with_skip_button(user_id, "multi_select", "skip_multi_efficiency")
     
     await _send_result_message(
         update_obj,
@@ -628,12 +654,20 @@ async def same_category(update_obj, user_id: int):
         f"Введите эффективность производства (%):\n"
         f"Пример: 110\n\n"
         f"По умолчанию: 150%",
-        cancel_button(user_id)
+        reply_markup
     )
 
 
 async def show_explanation(update_obj, user_id: int):
     """Показать пояснение"""
+    session = get_session(user_id)
+    
+    # Сохраняем текущий результат как last_result, если он ещё не сохранён
+    if not session.get('last_result_text'):
+        # Если пояснение вызвано до показа результатов, сохраняем заглушку
+        session['last_result_text'] = "📊 РЕЗУЛЬТАТЫ РАСЧЕТА\n\nРасчёт ещё не выполнен."
+        session['last_result_keyboard'] = cancel_button(user_id)
+    
     await _send_result_message(
         update_obj,
         format_explanation(),
