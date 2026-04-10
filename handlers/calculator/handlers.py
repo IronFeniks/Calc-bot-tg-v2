@@ -20,7 +20,7 @@ from .quantity_prices import (
 from .materials import (
     start_price_input, auto_prices, input_missing_prices,
     process_price_input_value, process_missing_price_value,
-    _show_materials_list, calculate_single_materials, back_to_materials
+    _show_materials_list, calculate_single_materials, calculate_multi_materials, back_to_materials
 )
 from .results import (
     calculate_final_result, next_detail, prev_detail,
@@ -358,7 +358,7 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
             await query.edit_message_text("❌ Ошибка при загрузке страницы", reply_markup=cancel_button(user_id))
         return
     
-    # ==================== ВЫБОР РЕЖИМА РАСЧЁТА МАТЕРИАЛОВ ====================
+    # ==================== ВЫБОР РЕЖИМА РАСЧЁТА МАТЕРИАЛОВ (ОДИНОЧНЫЙ) ====================
     if action == "mode_buy_nodes":
         session = get_session(user_id)
         session['calculation_mode'] = 'buy_nodes'
@@ -373,6 +373,23 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
         logger.info(f"🔧 Установлен режим produce_nodes (производство узлов) для пользователя {user_id}")
         session['step'] = 'materials'
         await calculate_single_materials(query, user_id)
+        return
+    
+    # ==================== ВЫБОР РЕЖИМА РАСЧЁТА МАТЕРИАЛОВ (МНОЖЕСТВЕННЫЙ) ====================
+    if action == "mode_buy_nodes_multi":
+        session = get_session(user_id)
+        session['calculation_mode'] = 'buy_nodes'
+        logger.info(f"🔧 Установлен режим buy_nodes (покупка узлов) для множественного режима, пользователь {user_id}")
+        session['step'] = 'materials'
+        await calculate_multi_materials(query, user_id)
+        return
+    
+    if action == "mode_produce_nodes_multi":
+        session = get_session(user_id)
+        session['calculation_mode'] = 'produce_nodes'
+        logger.info(f"🔧 Установлен режим produce_nodes (производство узлов) для множественного режима, пользователь {user_id}")
+        session['step'] = 'materials'
+        await calculate_multi_materials(query, user_id)
         return
     
     # ==================== КНОПКИ "НАЗАД" ====================
