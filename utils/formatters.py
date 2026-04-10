@@ -283,22 +283,7 @@ def format_total_result(
     per_unit_profit: float = None
 ) -> str:
     """
-    Форматирует итоговую таблицу результатов
-    
-    Args:
-        materials_cost: стоимость материалов
-        production_cost: стоимость производства
-        drawings_cost: стоимость чертежей
-        total_cost: себестоимость
-        revenue: выручка
-        profit_before_tax: прибыль до налога
-        tax: налог
-        profit_after_tax: прибыль после налога
-        per_unit_cost: себестоимость на 1 шт (опционально)
-        per_unit_profit: прибыль на 1 шт (опционально)
-    
-    Returns:
-        отформатированная строка с таблицей
+    Форматирует итоговую таблицу результатов (старая версия с таблицей)
     """
     lines = [
         "💰 ИТОГИ",
