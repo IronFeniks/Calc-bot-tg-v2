@@ -73,10 +73,15 @@ async def start_calculator(update_obj, context: ContextTypes.DEFAULT_TYPE, is_to
     clear_session(user_id)
     session = get_session(user_id)
     
+    # ВСЕГДА загружаем дерево категорий из Excel
     excel = get_excel_handler()
     if excel:
         tree = excel.get_category_tree()
         session['category_tree'] = tree
+        logger.info(f"✅ Дерево категорий загружено для пользователя {user_id}, категорий: {len(tree)}")
+    else:
+        logger.error(f"❌ ExcelHandler не доступен для пользователя {user_id}")
+        session['category_tree'] = {}
     
     if is_topic:
         instruction = INSTRUCTION_TOPIC
@@ -104,7 +109,16 @@ async def select_mode(query, user_id: int, mode: str):
     session['category_path'] = []
     
     tree = session.get('category_tree', {})
-    categories = list(tree.keys())
+    
+    # Если дерево пустое — пробуем загрузить заново
+    if not tree:
+        excel = get_excel_handler()
+        if excel:
+            tree = excel.get_category_tree()
+            session['category_tree'] = tree
+            logger.info(f"🔄 Дерево категорий перезагружено в select_mode для пользователя {user_id}")
+    
+    categories = list(tree.keys()) if tree else []
     
     if categories:
         total_pages = (len(categories) + 9) // 10
@@ -230,7 +244,16 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
         session['category_path'] = []
         
         tree = session.get('category_tree', {})
-        categories = list(tree.keys())
+        
+        # Если дерево пустое — пробуем загрузить заново
+        if not tree:
+            excel = get_excel_handler()
+            if excel:
+                tree = excel.get_category_tree()
+                session['category_tree'] = tree
+                logger.info(f"🔄 Дерево категорий перезагружено в mode_calculator для пользователя {user_id}")
+        
+        categories = list(tree.keys()) if tree else []
         
         if categories:
             total_pages = (len(categories) + 9) // 10
