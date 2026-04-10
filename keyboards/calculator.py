@@ -96,11 +96,14 @@ def mode_selection_keyboard(user_id: int) -> InlineKeyboardMarkup:
 
 # ==================== ВЫБОР РЕЖИМА РАСЧЁТА МАТЕРИАЛОВ ====================
 
-def calculation_mode_keyboard(user_id: int) -> InlineKeyboardMarkup:
+def calculation_mode_keyboard(user_id: int, is_multi: bool = False) -> InlineKeyboardMarkup:
     """Клавиатура выбора режима расчёта (покупка узлов / производство узлов)"""
+    buy_action = "mode_buy_nodes_multi" if is_multi else "mode_buy_nodes"
+    produce_action = "mode_produce_nodes_multi" if is_multi else "mode_produce_nodes"
+    
     keyboard = [
-        [InlineKeyboardButton("🏭 Как в игре", callback_data=make_callback(user_id, "mode_buy_nodes"))],
-        [InlineKeyboardButton("📊 По материалам", callback_data=make_callback(user_id, "mode_produce_nodes"))],
+        [InlineKeyboardButton("🏭 Как в игре", callback_data=make_callback(user_id, buy_action))],
+        [InlineKeyboardButton("📊 По материалам", callback_data=make_callback(user_id, produce_action))],
         [InlineKeyboardButton("❌ Отмена", callback_data=make_callback(user_id, "cancel"))]
     ]
     return InlineKeyboardMarkup(keyboard)
