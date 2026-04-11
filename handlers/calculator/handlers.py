@@ -48,6 +48,36 @@ async def _send_message(update_obj, text: str, reply_markup=None, parse_mode: st
         logger.error(f"Не удалось отправить сообщение: неизвестный тип {type(update_obj)}")
 
 
+async def _safe_edit_message(query: CallbackQuery, text: str, reply_markup, parse_mode: str = 'Markdown'):
+    """
+    Безопасное редактирование сообщения — проверяет, изменился ли текст/клавиатура
+    """
+    current_text = query.message.text if query.message else ""
+    current_reply_markup = query.message.reply_markup if query.message else None
+    
+    # Сравниваем тексты (без учёта пробелов в начале/конце)
+    text_changed = current_text.strip() != text.strip()
+    
+    # Простое сравнение клавиатур (по количеству кнопок)
+    markup_changed = True
+    if current_reply_markup and reply_markup:
+        current_buttons = len([btn for row in current_reply_markup.inline_keyboard for btn in row])
+        new_buttons = len([btn for row in reply_markup.inline_keyboard for btn in row])
+        markup_changed = current_buttons != new_buttons
+    
+    if not text_changed and not markup_changed:
+        await query.answer("Вы уже на этой странице")
+        return False
+    
+    try:
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка при редактировании сообщения: {e}")
+        await query.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        return True
+
+
 async def start_calculator(update_obj, context: ContextTypes.DEFAULT_TYPE, is_topic: bool, lock=None):
     """Запуск калькулятора (работает как из сообщения, так и из callback)"""
     if isinstance(update_obj, CallbackQuery):
@@ -95,7 +125,9 @@ async def start_calculator(update_obj, context: ContextTypes.DEFAULT_TYPE, is_to
         else:
             await _send_message(update_obj, instruction, mode_selection_keyboard(user_id), parse_mode='Markdown')
     else:
-        if is_admin(user_id):
+        user_is_admin = is_admin(user_id)
+        
+        if user_is_admin:
             # Админ в личке — показываем меню выбора (Калькулятор / Админка)
             from keyboards.admin import mode_selection_keyboard as admin_mode_keyboard
             if query:
@@ -256,9 +288,10 @@ async def calculator_callback_handler(update: Update, context: ContextTypes.DEFA
     # ==================== ВЫБОР РЕЖИМА (для админа в личке) ====================
     if action == "mode_calculator":
         # Показываем выбор между одиночным и множественным режимом
-        await query.edit_message_text(
+        await _safe_edit_message(
+            query,
             INSTRUCTION_PRIVATE,
-            reply_markup=mode_selection_keyboard(user_id),
+            mode_selection_keyboard(user_id),
             parse_mode='Markdown'
         )
         return
