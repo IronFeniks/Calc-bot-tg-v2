@@ -10,11 +10,17 @@ logger = logging.getLogger(__name__)
 async def _send_admin_message(update_obj, text: str, reply_markup=None, parse_mode: str = None):
     """
     Универсальная функция отправки сообщения в админке
-    Поддерживает как Update, так и CallbackQuery
+    Поддерживает Update, CallbackQuery и Message
     """
-    if isinstance(update_obj, CallbackQuery):
-        await update_obj.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
-    elif hasattr(update_obj, 'message') and update_obj.message:
+    # Если это Update — извлекаем эффективное сообщение или callback_query
+    if isinstance(update_obj, Update):
+        if update_obj.callback_query:
+            await update_obj.callback_query.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        elif update_obj.message:
+            await update_obj.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        else:
+            logger.error(f"Update не содержит message или callback_query")
+    elif isinstance(update_obj, CallbackQuery):
         await update_obj.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
     elif hasattr(update_obj, 'reply_text'):
         await update_obj.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
@@ -24,7 +30,13 @@ async def _send_admin_message(update_obj, text: str, reply_markup=None, parse_mo
 
 async def start_admin(update_obj, context: ContextTypes.DEFAULT_TYPE):
     """Запуск админки (работает как из сообщения, так и из callback)"""
-    if isinstance(update_obj, CallbackQuery):
+    # Определяем user_id в зависимости от типа объекта
+    if isinstance(update_obj, Update):
+        if update_obj.callback_query:
+            user_id = update_obj.callback_query.from_user.id
+        else:
+            user_id = update_obj.effective_user.id
+    elif isinstance(update_obj, CallbackQuery):
         user_id = update_obj.from_user.id
     else:
         user_id = update_obj.effective_user.id
