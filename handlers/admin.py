@@ -1,5 +1,5 @@
 import logging
-from telegram import Update
+from telegram import Update, CallbackQuery
 from telegram.ext import ContextTypes
 from keyboards.admin import main_menu_keyboard, cancel_button
 from handlers.auth import is_admin
@@ -7,16 +7,35 @@ from handlers.auth import is_admin
 logger = logging.getLogger(__name__)
 
 
-async def start_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Запуск админки"""
-    user_id = update.effective_user.id
+async def _send_admin_message(update_obj, text: str, reply_markup=None, parse_mode: str = None):
+    """
+    Универсальная функция отправки сообщения в админке
+    Поддерживает как Update, так и CallbackQuery
+    """
+    if isinstance(update_obj, CallbackQuery):
+        await update_obj.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    elif hasattr(update_obj, 'message') and update_obj.message:
+        await update_obj.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    elif hasattr(update_obj, 'reply_text'):
+        await update_obj.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    else:
+        logger.error(f"Не удалось отправить сообщение в админке: неизвестный тип {type(update_obj)}")
+
+
+async def start_admin(update_obj, context: ContextTypes.DEFAULT_TYPE):
+    """Запуск админки (работает как из сообщения, так и из callback)"""
+    if isinstance(update_obj, CallbackQuery):
+        user_id = update_obj.from_user.id
+    else:
+        user_id = update_obj.effective_user.id
     
     # Проверяем права
     if not is_admin(user_id):
-        await update.message.reply_text("⛔ У вас нет доступа к администрированию.")
+        await _send_admin_message(update_obj, "⛔ У вас нет доступа к администрированию.")
         return
     
-    await update.message.reply_text(
+    await _send_admin_message(
+        update_obj,
         "⚙️ АДМИНИСТРИРОВАНИЕ\n\n"
         "Главное меню:",
         reply_markup=main_menu_keyboard(user_id)
