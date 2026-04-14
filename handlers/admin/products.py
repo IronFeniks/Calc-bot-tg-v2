@@ -9,6 +9,7 @@ from keyboards.admin import (
 )
 from excel_handler import get_excel_handler
 from utils.formatters import format_price
+from states import AdminStates
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,6 @@ async def show_products_list(query: CallbackQuery, user_id: int, page: int = 0):
 async def add_product_start(query: CallbackQuery, user_id: int):
     """Начинает добавление изделия - запрос названия"""
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     session['state'] = AdminStates.PRODUCT_ADD_NAME
@@ -64,7 +64,6 @@ async def add_product_start(query: CallbackQuery, user_id: int):
 async def save_product_name(update, user_id: int, name: str):
     """Сохраняет название и запрашивает категорию"""
     from .router import get_admin_session
-    from states import AdminStates
     from keyboards.admin import product_category_select_keyboard
     
     excel = get_excel_handler()
@@ -95,7 +94,6 @@ async def save_product_name(update, user_id: int, name: str):
 async def save_product_category(query: CallbackQuery, user_id: int, category: str):
     """Сохраняет категорию и запрашивает кратность"""
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     session['data']['category'] = category
@@ -114,7 +112,6 @@ async def save_product_category(query: CallbackQuery, user_id: int, category: st
 async def save_product_multiplicity(update, user_id: int, text: str):
     """Сохраняет кратность и запрашивает цену производства"""
     from .router import get_admin_session
-    from states import AdminStates
     from utils.validators import validate_multiplicity
     
     mult = validate_multiplicity(text)
@@ -258,7 +255,6 @@ async def product_toggle_node(query: CallbackQuery, user_id: int, node_code: str
 async def product_confirm_nodes(query: CallbackQuery, user_id: int):
     """Подтверждает выбор узлов и начинает ввод количеств"""
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     selected = session.get('data', {}).get('selected_nodes', [])
@@ -416,7 +412,6 @@ async def product_toggle_material(query: CallbackQuery, user_id: int, mat_code: 
 async def product_confirm_materials(query: CallbackQuery, user_id: int):
     """Подтверждает выбор материалов и начинает ввод количеств"""
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     selected = session.get('data', {}).get('selected_materials', [])
@@ -524,7 +519,6 @@ async def save_material_quantity(update, user_id: int, text: str):
 async def product_create_node_start(query: CallbackQuery, user_id: int):
     """Начинает создание нового узла для привязки"""
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     session['state'] = AdminStates.PRODUCT_CREATE_NODE_NAME
@@ -552,7 +546,6 @@ async def product_create_node_save_name(update, user_id: int, name: str):
         return
     
     from .router import get_admin_session
-    from states import AdminStates
     from keyboards.admin import node_category_select_keyboard
     
     session = get_admin_session(user_id)
@@ -572,7 +565,6 @@ async def product_create_node_save_name(update, user_id: int, name: str):
 async def product_create_node_save_category(query: CallbackQuery, user_id: int, category: str):
     """Сохраняет категорию нового узла"""
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     session['data']['new_node_category'] = category
@@ -600,7 +592,6 @@ async def product_create_node_save_multiplicity(update, user_id: int, text: str)
         return
     
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     session['data']['new_node_multiplicity'] = mult
@@ -625,7 +616,6 @@ async def product_create_node_save_price(update, user_id: int, text: str):
         price = 0
     
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     data = session['data']
@@ -669,7 +659,6 @@ async def product_create_node_save_price(update, user_id: int, text: str):
 async def product_create_material_start(query: CallbackQuery, user_id: int):
     """Начинает создание нового материала для привязки"""
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     session['state'] = AdminStates.PRODUCT_CREATE_MATERIAL_NAME
@@ -696,7 +685,6 @@ async def product_create_material_save_name(update, user_id: int, name: str):
         return
     
     from .router import get_admin_session
-    from states import AdminStates
     from keyboards.admin import material_category_select_keyboard
     
     session = get_admin_session(user_id)
@@ -716,7 +704,6 @@ async def product_create_material_save_name(update, user_id: int, name: str):
 async def product_create_material_save_category(query: CallbackQuery, user_id: int, category: str):
     """Сохраняет категорию нового материала"""
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     session['data']['new_material_category'] = category
@@ -740,7 +727,6 @@ async def product_create_material_save_price(update, user_id: int, text: str):
         price = 0
     
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     data = session['data']
@@ -779,8 +765,9 @@ async def product_create_material_save_price(update, user_id: int, text: str):
 async def product_finish_setup(query: CallbackQuery, user_id: int):
     """Завершает настройку изделия"""
     from .router import clear_admin_session
-    from keyboards.admin import main_menu_keyboard
     
+    # Исправлено: get_admin_session вместо get_session
+    from .router import get_admin_session
     session = get_admin_session(user_id)
     product_name = session.get('data', {}).get('name', 'Изделие')
     
@@ -819,7 +806,6 @@ async def edit_product_select(query: CallbackQuery, user_id: int, page: int = 0)
 async def edit_product_field(query: CallbackQuery, user_id: int, code: str):
     """Показывает поля для редактирования изделия"""
     from .router import get_admin_session
-    from states import AdminStates
     
     excel = get_excel_handler()
     product = excel.get_product_by_code(code)
@@ -849,7 +835,6 @@ async def edit_product_field(query: CallbackQuery, user_id: int, code: str):
 async def save_product_edit(query: CallbackQuery, user_id: int, code: str, field: str):
     """Запрашивает новое значение для поля"""
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     session['state'] = AdminStates.PRODUCT_EDIT_FIELD
@@ -884,7 +869,6 @@ async def save_product_edit(query: CallbackQuery, user_id: int, code: str, field
 async def save_product_edit_value(update, user_id: int, text: str):
     """Сохраняет отредактированное значение"""
     from .router import get_admin_session, clear_admin_session
-    from keyboards.admin import main_menu_keyboard
     from utils.validators import validate_price, validate_multiplicity
     
     session = get_admin_session(user_id)
@@ -941,8 +925,6 @@ async def delete_product_confirm(query: CallbackQuery, user_id: int, page: int =
 
 async def delete_product_execute(query: CallbackQuery, user_id: int, code: str):
     """Удаляет изделие"""
-    from keyboards.admin import main_menu_keyboard
-    
     excel = get_excel_handler()
     product = excel.get_product_by_code(code)
     
@@ -968,7 +950,6 @@ async def delete_product_execute(query: CallbackQuery, user_id: int, code: str):
 async def search_products(query: CallbackQuery, user_id: int):
     """Запрашивает поисковый запрос для изделий"""
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     session['state'] = AdminStates.PRODUCT_SEARCH
