@@ -6,8 +6,14 @@ from .calculator import (
     cancel_calculator,
     help_calculator
 )
-from .admin import start_admin, admin_text_handler, admin_callback_handler, cancel_admin, help_admin
-from .auth import is_admin  # ← экспортируем для удобства
+from .admin import (
+    start_admin,
+    admin_text_handler,
+    admin_callback_handler,
+    cancel_admin,
+    help_admin
+)
+from .auth import is_admin
 
 __all__ = [
     'router_handler',
