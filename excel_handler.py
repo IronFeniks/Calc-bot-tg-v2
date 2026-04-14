@@ -230,6 +230,63 @@ class ExcelHandler:
             return len(admins) > 0
         return False
     
+    def get_all_admins(self) -> List[Dict]:
+        """Возвращает список всех администраторов"""
+        if self.df_admins is None:
+            return []
+        return self.df_admins.to_dict('records')
+    
+    def add_admin(self, user_id: int, username: str, first_name: str, added_by: int) -> Tuple[bool, str]:
+        """Добавляет нового администратора"""
+        try:
+            if self.is_admin(user_id):
+                return False, "❌ Пользователь уже является администратором"
+            
+            new_row = pd.DataFrame([{
+                'user_id': user_id,
+                'username': username,
+                'first_name': first_name,
+                'added_by': added_by,
+                'added_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'is_active': 1
+            }])
+            self.df_admins = pd.concat([self.df_admins, new_row], ignore_index=True)
+            self.save_data()
+            return True, "✅ Администратор добавлен"
+        except Exception as e:
+            return False, f"❌ Ошибка: {e}"
+    
+    def remove_admin(self, user_id: int) -> Tuple[bool, str]:
+        """Удаляет администратора"""
+        from config import MASTER_ADMIN_ID
+        if user_id == MASTER_ADMIN_ID:
+            return False, "❌ Нельзя удалить главного администратора"
+        
+        try:
+            self.df_admins = self.df_admins[self.df_admins['user_id'] != user_id]
+            self.save_data()
+            return True, "✅ Администратор удалён"
+        except Exception as e:
+            return False, f"❌ Ошибка: {e}"
+    
+    def toggle_admin(self, user_id: int) -> Tuple[bool, str]:
+        """Переключает статус администратора (активен/неактивен)"""
+        from config import MASTER_ADMIN_ID
+        if user_id == MASTER_ADMIN_ID:
+            return False, "❌ Нельзя деактивировать главного администратора"
+        
+        try:
+            mask = self.df_admins['user_id'] == user_id
+            if mask.any():
+                current = self.df_admins.loc[mask, 'is_active'].iloc[0]
+                self.df_admins.loc[mask, 'is_active'] = 0 if current == 1 else 1
+                self.save_data()
+                status = "деактивирован" if current == 1 else "активирован"
+                return True, f"✅ Администратор {status}"
+            return False, "❌ Администратор не найден"
+        except Exception as e:
+            return False, f"❌ Ошибка: {e}"
+    
     # ==================== НОМЕНКЛАТУРА ====================
     
     def get_product_by_code(self, code: str) -> Optional[Dict]:
@@ -242,15 +299,7 @@ class ExcelHandler:
         return None
     
     def get_product_by_name(self, name: str) -> Optional[Dict]:
-        """
-        Возвращает запись по названию (с нормализацией)
-        
-        Args:
-            name: название изделия/узла/материала
-        
-        Returns:
-            словарь с данными или None
-        """
+        """Возвращает запись по названию (с нормализацией)"""
         if self.df_nomenclature is None:
             return None
         
@@ -342,3 +391,299 @@ class ExcelHandler:
                 current = current[cat]['_subcategories']
         
         return tree
+    
+    def get_all_categories(self) -> List[str]:
+        """Возвращает плоский список всех уникальных категорий"""
+        categories = set()
+        
+        if self.df_nomenclature is None:
+            return []
+        
+        for _, row in self.df_nomenclature.iterrows():
+            category_str = str(row.get('Категории', ''))
+            if category_str and not pd.isna(category_str):
+                for cat in category_str.split(' > '):
+                    if cat.strip():
+                        categories.add(cat.strip())
+        
+        return sorted(list(categories))
+    
+    def get_category_paths(self) -> List[str]:
+        """Возвращает все уникальные пути категорий"""
+        paths = set()
+        
+        if self.df_nomenclature is None:
+            return []
+        
+        for _, row in self.df_nomenclature.iterrows():
+            category_str = str(row.get('Категории', ''))
+            if category_str and not pd.isna(category_str):
+                paths.add(category_str.strip())
+        
+        return sorted(list(paths))
+    
+    def is_category_empty(self, category_path: str) -> bool:
+        """Проверяет, пуста ли категория (нет подкатегорий и элементов)"""
+        if self.df_nomenclature is None:
+            return True
+        
+        # Проверяем подкатегории
+        prefix = category_path + " > "
+        for _, row in self.df_nomenclature.iterrows():
+            cat = str(row.get('Категории', ''))
+            if cat.startswith(prefix):
+                return False
+        
+        # Проверяем элементы в самой категории
+        for _, row in self.df_nomenclature.iterrows():
+            cat = str(row.get('Категории', ''))
+            if cat == category_path:
+                return False
+        
+        return True
+    
+    def add_category(self, category_path: str) -> Tuple[bool, str]:
+        """Добавляет новую категорию (создаёт пустую запись-заглушку)"""
+        try:
+            # Проверяем, существует ли уже такая категория
+            existing_paths = self.get_category_paths()
+            if category_path in existing_paths:
+                return False, "❌ Такая категория уже существует"
+            
+            # Создаём заглушку для категории
+            # Используем специальный код для категорий
+            new_row = pd.DataFrame([{
+                'Код': f"CAT_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                'Наименование': f"[КАТЕГОРИЯ] {category_path}",
+                'Тип': 'категория',
+                'Категории': category_path,
+                'Цена производства': '0 ISK',
+                'Кратность': 1
+            }])
+            self.df_nomenclature = pd.concat([self.df_nomenclature, new_row], ignore_index=True)
+            self.save_data()
+            return True, f"✅ Категория '{category_path}' добавлена"
+        except Exception as e:
+            return False, f"❌ Ошибка: {e}"
+    
+    def rename_category(self, old_path: str, new_path: str) -> Tuple[bool, str]:
+        """Переименовывает категорию и обновляет все связанные записи"""
+        try:
+            if self.df_nomenclature is None:
+                return False, "❌ Нет данных"
+            
+            updated = 0
+            prefix = old_path + " > "
+            
+            for idx, row in self.df_nomenclature.iterrows():
+                cat = str(row.get('Категории', ''))
+                if cat == old_path:
+                    self.df_nomenclature.at[idx, 'Категории'] = new_path
+                    updated += 1
+                elif cat.startswith(prefix):
+                    new_cat = new_path + " > " + cat[len(prefix):]
+                    self.df_nomenclature.at[idx, 'Категории'] = new_cat
+                    updated += 1
+            
+            self.save_data()
+            return True, f"✅ Обновлено {updated} записей"
+        except Exception as e:
+            return False, f"❌ Ошибка: {e}"
+    
+    def delete_category(self, category_path: str) -> Tuple[bool, str]:
+        """Удаляет категорию (только если пуста)"""
+        try:
+            if not self.is_category_empty(category_path):
+                return False, "❌ Категория не пуста"
+            
+            if self.df_nomenclature is None:
+                return False, "❌ Нет данных"
+            
+            # Удаляем заглушку категории
+            mask = (self.df_nomenclature['Категории'] == category_path) & (self.df_nomenclature['Тип'] == 'категория')
+            self.df_nomenclature = self.df_nomenclature[~mask]
+            self.save_data()
+            return True, f"✅ Категория '{category_path}' удалена"
+        except Exception as e:
+            return False, f"❌ Ошибка: {e}"
+    
+    # ==================== ДОБАВЛЕНИЕ / РЕДАКТИРОВАНИЕ ЭЛЕМЕНТОВ ====================
+    
+    def add_item(self, item_type: str, name: str, category: str, multiplicity: int = 1, price: float = 0) -> Tuple[bool, str, str]:
+        """Добавляет новый элемент (изделие/узел/материал)"""
+        try:
+            # Проверяем уникальность названия
+            existing = self.get_product_by_name(name)
+            if existing:
+                return False, "❌ Элемент с таким названием уже существует", ""
+            
+            # Генерируем код
+            if item_type == 'изделие':
+                code = self.get_next_product_code()
+            elif item_type == 'узел':
+                code = self.get_next_node_code()
+            else:
+                code = self.get_next_material_code()
+            
+            price_str = f"{price} ISK" if price > 0 else "0 ISK"
+            
+            new_row = pd.DataFrame([{
+                'Код': code,
+                'Наименование': name,
+                'Тип': item_type,
+                'Категории': category,
+                'Цена производства': price_str,
+                'Кратность': multiplicity
+            }])
+            self.df_nomenclature = pd.concat([self.df_nomenclature, new_row], ignore_index=True)
+            self.save_data()
+            return True, f"✅ {item_type.capitalize()} '{name}' добавлен", code
+        except Exception as e:
+            return False, f"❌ Ошибка: {e}", ""
+    
+    def update_item(self, code: str, field: str, value: any) -> Tuple[bool, str]:
+        """Обновляет поле элемента"""
+        try:
+            mask = self.df_nomenclature['Код'] == code
+            if not mask.any():
+                return False, "❌ Элемент не найден"
+            
+            if field == 'Цена производства':
+                value = f"{value} ISK" if value > 0 else "0 ISK"
+            
+            self.df_nomenclature.loc[mask, field] = value
+            self.save_data()
+            return True, f"✅ Поле '{field}' обновлено"
+        except Exception as e:
+            return False, f"❌ Ошибка: {e}"
+    
+    def delete_item(self, code: str) -> Tuple[bool, str]:
+        """Удаляет элемент и все его спецификации"""
+        try:
+            # Удаляем элемент
+            mask = self.df_nomenclature['Код'] == code
+            if not mask.any():
+                return False, "❌ Элемент не найден"
+            
+            self.df_nomenclature = self.df_nomenclature[~mask]
+            
+            # Удаляем спецификации, где элемент родитель или потомок
+            if self.df_specifications is not None:
+                spec_mask = (self.df_specifications['Родитель'] == code) | (self.df_specifications['Потомок'] == code)
+                self.df_specifications = self.df_specifications[~spec_mask]
+            
+            self.save_data()
+            return True, "✅ Элемент и связанные спецификации удалены"
+        except Exception as e:
+            return False, f"❌ Ошибка: {e}"
+    
+    # ==================== СПЕЦИФИКАЦИИ ====================
+    
+    def add_specification(self, parent_code: str, child_code: str, quantity: float) -> Tuple[bool, str]:
+        """Добавляет связь между родителем и потомком"""
+        try:
+            # Проверяем, существует ли уже такая связь
+            if self.df_specifications is not None:
+                existing = self.df_specifications[
+                    (self.df_specifications['Родитель'] == parent_code) &
+                    (self.df_specifications['Потомок'] == child_code)
+                ]
+                if len(existing) > 0:
+                    return False, "❌ Такая связь уже существует"
+            
+            new_row = pd.DataFrame([{
+                'Родитель': parent_code,
+                'Потомок': child_code,
+                'Количество': quantity
+            }])
+            
+            if self.df_specifications is None:
+                self.df_specifications = new_row
+            else:
+                self.df_specifications = pd.concat([self.df_specifications, new_row], ignore_index=True)
+            
+            self.save_data()
+            return True, "✅ Спецификация добавлена"
+        except Exception as e:
+            return False, f"❌ Ошибка: {e}"
+    
+    def update_specification(self, parent_code: str, child_code: str, quantity: float) -> Tuple[bool, str]:
+        """Обновляет количество в спецификации"""
+        try:
+            if self.df_specifications is None:
+                return False, "❌ Спецификация не найдена"
+            
+            mask = (self.df_specifications['Родитель'] == parent_code) & (self.df_specifications['Потомок'] == child_code)
+            if not mask.any():
+                return False, "❌ Спецификация не найдена"
+            
+            self.df_specifications.loc[mask, 'Количество'] = quantity
+            self.save_data()
+            return True, "✅ Количество обновлено"
+        except Exception as e:
+            return False, f"❌ Ошибка: {e}"
+    
+    def delete_specification(self, parent_code: str, child_code: str) -> Tuple[bool, str]:
+        """Удаляет спецификацию"""
+        try:
+            if self.df_specifications is None:
+                return False, "❌ Спецификация не найдена"
+            
+            mask = (self.df_specifications['Родитель'] == parent_code) & (self.df_specifications['Потомок'] == child_code)
+            if not mask.any():
+                return False, "❌ Спецификация не найдена"
+            
+            self.df_specifications = self.df_specifications[~mask]
+            self.save_data()
+            return True, "✅ Спецификация удалена"
+        except Exception as e:
+            return False, f"❌ Ошибка: {e}"
+    
+    def get_available_children(self, parent_type: str) -> List[Dict]:
+        """Возвращает доступных потомков для родителя определённого типа"""
+        if self.df_nomenclature is None:
+            return []
+        
+        if parent_type == 'изделие':
+            allowed_types = ['узел', 'материал']
+        elif parent_type == 'узел':
+            allowed_types = ['материал']
+        else:
+            return []
+        
+        result = []
+        for _, row in self.df_nomenclature.iterrows():
+            if row['Тип'] in allowed_types:
+                result.append({
+                    'code': row['Код'],
+                    'name': row['Наименование'],
+                    'type': row['Тип']
+                })
+        
+        return result
+    
+    # ==================== ПОИСК ====================
+    
+    def search_items(self, query: str) -> List[Dict]:
+        """Поиск по названию и коду"""
+        if self.df_nomenclature is None:
+            return []
+        
+        query_lower = query.lower()
+        result = []
+        
+        for _, row in self.df_nomenclature.iterrows():
+            name = str(row['Наименование']).lower()
+            code = str(row['Код']).lower()
+            
+            if query_lower in name or query_lower in code:
+                result.append({
+                    'code': row['Код'],
+                    'name': row['Наименование'],
+                    'type': row['Тип'],
+                    'category': row.get('Категории', ''),
+                    'price': row.get('Цена производства', '0 ISK'),
+                    'multiplicity': row.get('Кратность', 1)
+                })
+        
+        return result
