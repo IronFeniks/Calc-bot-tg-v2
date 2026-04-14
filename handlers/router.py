@@ -84,6 +84,7 @@ async def router_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     # Если команда /start — показываем меню выбора режима (только для админов)
     if command == "start":
         if user_is_admin:
+            set_user_mode(user_id, 'calculator')  # По умолчанию калькулятор
             await update.message.reply_text(
                 "🏭 ВЫБОР РЕЖИМА\n\n"
                 "Вы вошли как администратор. Выберите режим работы:",
@@ -93,6 +94,57 @@ async def router_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, com
             set_user_mode(user_id, 'calculator')
             await start_calculator(update, context, is_topic=False, lock=None)
         return
+    
+    # Для callback'ов — проверяем, не админский ли это callback
+    if command == "callback":
+        query = update.callback_query
+        data = query.data
+        
+        # Извлекаем действие
+        if data.startswith(f"user_{user_id}_"):
+            action = data.replace(f"user_{user_id}_", "")
+        else:
+            action = data
+        
+        # Проверяем, относится ли callback к админке
+        admin_actions = [
+            "mode_admin", "admin_categories", "admin_products", "admin_nodes",
+            "admin_materials", "admin_spec", "admin_admins", "admin_search",
+            "admin_back_to_main", "admin_exit"
+        ]
+        
+        # Также проверяем префиксы для вложенных действий
+        is_admin_action = (
+            action in admin_actions or
+            action.startswith("admin_cat_") or
+            action.startswith("admin_prod_") or
+            action.startswith("admin_node_") or
+            action.startswith("admin_mat_") or
+            action.startswith("admin_spec_") or
+            action.startswith("admin_admins_") or
+            action.startswith("admin_search_") or
+            action.startswith("admin_confirm_")
+        )
+        
+        if is_admin_action:
+            # Админский callback — направляем в админку
+            if user_is_admin:
+                set_user_mode(user_id, 'admin')
+                await admin_callback_handler(update, context)
+            else:
+                await query.answer("⛔ У вас нет доступа", show_alert=True)
+            return
+        
+        # Режимные callback'и
+        if action == "mode_calculator":
+            set_user_mode(user_id, 'calculator')
+            await calculator_callback_handler(update, context, is_topic=False, lock=None)
+            return
+        
+        if action == "mode_exit":
+            clear_user_mode(user_id)
+            await update.message.reply_text("👋 До свидания! Используйте /start для нового запуска.")
+            return
     
     # Определяем текущий режим пользователя
     mode = get_user_mode(user_id)
