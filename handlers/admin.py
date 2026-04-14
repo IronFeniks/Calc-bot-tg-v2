@@ -103,6 +103,41 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await save_product_price(update, user_id, text)
         return
     
+    elif state == AdminStates.PRODUCT_LINK_NODE_QUANTITY:
+        from handlers.admin.products import save_node_quantity
+        await save_node_quantity(update, user_id, text)
+        return
+    
+    elif state == AdminStates.PRODUCT_LINK_MATERIAL_QUANTITY:
+        from handlers.admin.products import save_material_quantity
+        await save_material_quantity(update, user_id, text)
+        return
+    
+    elif state == AdminStates.PRODUCT_CREATE_NODE_NAME:
+        from handlers.admin.products import product_create_node_save_name
+        await product_create_node_save_name(update, user_id, text)
+        return
+    
+    elif state == AdminStates.PRODUCT_CREATE_NODE_MULTIPLICITY:
+        from handlers.admin.products import product_create_node_save_multiplicity
+        await product_create_node_save_multiplicity(update, user_id, text)
+        return
+    
+    elif state == AdminStates.PRODUCT_CREATE_NODE_PRICE:
+        from handlers.admin.products import product_create_node_save_price
+        await product_create_node_save_price(update, user_id, text)
+        return
+    
+    elif state == AdminStates.PRODUCT_CREATE_MATERIAL_NAME:
+        from handlers.admin.products import product_create_material_save_name
+        await product_create_material_save_name(update, user_id, text)
+        return
+    
+    elif state == AdminStates.PRODUCT_CREATE_MATERIAL_PRICE:
+        from handlers.admin.products import product_create_material_save_price
+        await product_create_material_save_price(update, user_id, text)
+        return
+    
     elif state == AdminStates.PRODUCT_EDIT_NAME:
         from handlers.admin.products import save_product_edit_value
         await save_product_edit_value(update, user_id, text)
@@ -136,6 +171,21 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif state == AdminStates.NODE_ADD_PRICE:
         from handlers.admin.nodes import save_node_price
         await save_node_price(update, user_id, text)
+        return
+    
+    elif state == AdminStates.NODE_LINK_MATERIAL_QUANTITY:
+        from handlers.admin.nodes import save_node_material_quantity
+        await save_node_material_quantity(update, user_id, text)
+        return
+    
+    elif state == AdminStates.NODE_CREATE_MATERIAL_NAME:
+        from handlers.admin.nodes import node_create_material_save_name
+        await node_create_material_save_name(update, user_id, text)
+        return
+    
+    elif state == AdminStates.NODE_CREATE_MATERIAL_PRICE:
+        from handlers.admin.nodes import node_create_material_save_price
+        await node_create_material_save_price(update, user_id, text)
         return
     
     elif state == AdminStates.NODE_EDIT_NAME:
