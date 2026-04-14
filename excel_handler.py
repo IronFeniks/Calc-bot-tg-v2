@@ -375,7 +375,7 @@ class ExcelHandler:
                 
                 if i == len(path) - 1:
                     item_type = str(row.get('Тип', '')).lower()
-                    if 'изделие' in item_type or 'узел' in item_type:
+                    if item_type in ['изделие', 'узел', 'материал']:
                         exists = False
                         for existing in current[cat]['_items']:
                             if existing['code'] == row['Код']:
@@ -417,7 +417,7 @@ class ExcelHandler:
         
         for _, row in self.df_nomenclature.iterrows():
             category_str = str(row.get('Категории', ''))
-            if category_str and not pd.isna(category_str):
+            if category_str and not pd.isna(category_str) and category_str.strip():
                 paths.add(category_str.strip())
         
         return sorted(list(paths))
@@ -427,31 +427,42 @@ class ExcelHandler:
         if self.df_nomenclature is None:
             return True
         
-        # Проверяем подкатегории
+        category_path = category_path.strip()
         prefix = category_path + " > "
+        
+        logger.info(f"📦 is_category_empty: проверка '{category_path}', префикс '{prefix}'")
+        
+        # Проверяем подкатегории и элементы
         for _, row in self.df_nomenclature.iterrows():
-            cat = str(row.get('Категории', ''))
+            cat = str(row.get('Категории', '')).strip()
+            
+            # Проверяем подкатегории (начинаются с category_path + " > ")
             if cat.startswith(prefix):
+                logger.info(f"📦 is_category_empty: найдена подкатегория '{cat}'")
                 return False
-        
-        # Проверяем элементы в самой категории
-        for _, row in self.df_nomenclature.iterrows():
-            cat = str(row.get('Категории', ''))
+            
+            # Проверяем элементы в самой категории (точное совпадение)
             if cat == category_path:
-                return False
+                item_type = str(row.get('Тип', '')).lower()
+                # Игнорируем заглушки категорий
+                if item_type != 'категория':
+                    logger.info(f"📦 is_category_empty: найден элемент '{row.get('Наименование', '')}' типа '{item_type}'")
+                    return False
         
+        logger.info(f"📦 is_category_empty: категория '{category_path}' пуста")
         return True
     
     def add_category(self, category_path: str) -> Tuple[bool, str]:
         """Добавляет новую категорию (создаёт пустую запись-заглушку)"""
         try:
+            category_path = category_path.strip()
+            
             # Проверяем, существует ли уже такая категория
             existing_paths = self.get_category_paths()
             if category_path in existing_paths:
                 return False, "❌ Такая категория уже существует"
             
             # Создаём заглушку для категории
-            # Используем специальный код для категорий
             new_row = pd.DataFrame([{
                 'Код': f"CAT_{datetime.now().strftime('%Y%m%d%H%M%S')}",
                 'Наименование': f"[КАТЕГОРИЯ] {category_path}",
@@ -462,13 +473,19 @@ class ExcelHandler:
             }])
             self.df_nomenclature = pd.concat([self.df_nomenclature, new_row], ignore_index=True)
             self.save_data()
+            
+            logger.info(f"📦 add_category: категория '{category_path}' добавлена")
             return True, f"✅ Категория '{category_path}' добавлена"
         except Exception as e:
+            logger.error(f"📦 add_category: ошибка {e}")
             return False, f"❌ Ошибка: {e}"
     
     def rename_category(self, old_path: str, new_path: str) -> Tuple[bool, str]:
         """Переименовывает категорию и обновляет все связанные записи"""
         try:
+            old_path = old_path.strip()
+            new_path = new_path.strip()
+            
             if self.df_nomenclature is None:
                 return False, "❌ Нет данных"
             
@@ -476,9 +493,12 @@ class ExcelHandler:
             prefix = old_path + " > "
             
             for idx, row in self.df_nomenclature.iterrows():
-                cat = str(row.get('Категории', ''))
+                cat = str(row.get('Категории', '')).strip()
                 if cat == old_path:
                     self.df_nomenclature.at[idx, 'Категории'] = new_path
+                    # Обновляем название у заглушки категории
+                    if str(row.get('Тип', '')).lower() == 'категория':
+                        self.df_nomenclature.at[idx, 'Наименование'] = f"[КАТЕГОРИЯ] {new_path}"
                     updated += 1
                 elif cat.startswith(prefix):
                     new_cat = new_path + " > " + cat[len(prefix):]
@@ -486,25 +506,43 @@ class ExcelHandler:
                     updated += 1
             
             self.save_data()
+            logger.info(f"📦 rename_category: '{old_path}' -> '{new_path}', обновлено {updated} записей")
             return True, f"✅ Обновлено {updated} записей"
         except Exception as e:
+            logger.error(f"📦 rename_category: ошибка {e}")
             return False, f"❌ Ошибка: {e}"
     
     def delete_category(self, category_path: str) -> Tuple[bool, str]:
         """Удаляет категорию (только если пуста)"""
         try:
+            category_path = category_path.strip()
+            
             if not self.is_category_empty(category_path):
                 return False, "❌ Категория не пуста"
             
             if self.df_nomenclature is None:
                 return False, "❌ Нет данных"
             
+            initial_count = len(self.df_nomenclature)
+            
             # Удаляем заглушку категории
-            mask = (self.df_nomenclature['Категории'] == category_path) & (self.df_nomenclature['Тип'] == 'категория')
+            mask = (self.df_nomenclature['Категории'].str.strip() == category_path) & \
+                   (self.df_nomenclature['Тип'].str.lower() == 'категория')
+            
+            deleted_count = mask.sum()
             self.df_nomenclature = self.df_nomenclature[~mask]
+            
             self.save_data()
-            return True, f"✅ Категория '{category_path}' удалена"
+            
+            logger.info(f"📦 delete_category: категория '{category_path}' удалена, удалено {deleted_count} записей из {initial_count}")
+            
+            if deleted_count > 0:
+                return True, f"✅ Категория '{category_path}' удалена"
+            else:
+                # Заглушки не было, но категория пуста — всё равно считаем успехом
+                return True, f"✅ Категория '{category_path}' удалена (заглушка не найдена)"
         except Exception as e:
+            logger.error(f"📦 delete_category: ошибка {e}")
             return False, f"❌ Ошибка: {e}"
     
     # ==================== ДОБАВЛЕНИЕ / РЕДАКТИРОВАНИЕ ЭЛЕМЕНТОВ ====================
