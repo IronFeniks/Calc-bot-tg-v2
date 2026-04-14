@@ -672,4 +672,311 @@ async def product_create_material_start(query: CallbackQuery, user_id: int):
     from states import AdminStates
     
     session = get_admin_session(user_id)
-    session['state'] = AdminStates.PRODUCT_CREATE_MATER
+    session['state'] = AdminStates.PRODUCT_CREATE_MATERIAL_NAME
+    session['data']['creating_for_product'] = True
+    
+    await query.edit_message_text(
+        "🧱 СОЗДАНИЕ НОВОГО МАТЕРИАЛА\n\n"
+        "Введите название нового материала:\n"
+        "(или нажмите Отмена)",
+        reply_markup=back_to_main_button(user_id)
+    )
+
+
+async def product_create_material_save_name(update, user_id: int, name: str):
+    """Сохраняет название нового материала"""
+    excel = get_excel_handler()
+    existing = excel.get_product_by_name(name)
+    
+    if existing:
+        await update.message.reply_text(
+            "❌ Материал с таким названием уже существует.",
+            reply_markup=back_to_main_button(user_id)
+        )
+        return
+    
+    from .router import get_admin_session
+    from states import AdminStates
+    from keyboards.admin import material_category_select_keyboard
+    
+    session = get_admin_session(user_id)
+    session['data']['new_material_name'] = name
+    session['state'] = AdminStates.PRODUCT_CREATE_MATERIAL_CATEGORY
+    
+    paths = excel.get_category_paths()
+    
+    await update.message.reply_text(
+        f"🧱 СОЗДАНИЕ МАТЕРИАЛА\n\n"
+        f"Название: {name}\n\n"
+        f"Выберите категорию:",
+        reply_markup=material_category_select_keyboard(user_id, paths, "prod_new_mat")
+    )
+
+
+async def product_create_material_save_category(query: CallbackQuery, user_id: int, category: str):
+    """Сохраняет категорию нового материала"""
+    from .router import get_admin_session
+    from states import AdminStates
+    
+    session = get_admin_session(user_id)
+    session['data']['new_material_category'] = category
+    session['state'] = AdminStates.PRODUCT_CREATE_MATERIAL_PRICE
+    
+    await query.edit_message_text(
+        f"🧱 СОЗДАНИЕ МАТЕРИАЛА\n\n"
+        f"Название: {session['data']['new_material_name']}\n"
+        f"Категория: {category}\n\n"
+        f"Введите цену материала (ISK, по умолчанию 0):",
+        reply_markup=back_to_main_button(user_id)
+    )
+
+
+async def product_create_material_save_price(update, user_id: int, text: str):
+    """Сохраняет цену, создаёт материал и запрашивает количество для привязки"""
+    from utils.validators import validate_price
+    
+    price = validate_price(text)
+    if price is None:
+        price = 0
+    
+    from .router import get_admin_session
+    from states import AdminStates
+    
+    session = get_admin_session(user_id)
+    data = session['data']
+    
+    excel = get_excel_handler()
+    success, message, code = excel.add_item(
+        'материал',
+        data['new_material_name'],
+        data['new_material_category'],
+        1,
+        price
+    )
+    
+    if not success:
+        await update.message.reply_text(f"{message}", reply_markup=back_to_main_button(user_id))
+        return
+    
+    data['pending_links'] = [{'code': code, 'name': data['new_material_name']}]
+    data['link_type'] = 'material'
+    data['current_link_index'] = 0
+    data['state'] = AdminStates.PRODUCT_LINK_MATERIAL_QUANTITY
+    
+    for key in ['new_material_name', 'new_material_category', 'creating_for_product']:
+        if key in data:
+            del data[key]
+    
+    await update.message.reply_text(
+        f"✅ Материал '{data['pending_links'][0]['name']}' создан!\n"
+        f"Код: {code}\n\n"
+        f"Введите количество, необходимое для производства\n"
+        f"одного чертежа изделия при эффективности 150%:",
+        reply_markup=back_to_main_button(user_id)
+    )
+
+
+async def product_finish_setup(query: CallbackQuery, user_id: int):
+    """Завершает настройку изделия"""
+    from .router import clear_admin_session
+    from keyboards.admin import main_menu_keyboard
+    
+    session = get_admin_session(user_id)
+    product_name = session.get('data', {}).get('name', 'Изделие')
+    
+    clear_admin_session(user_id)
+    
+    await query.edit_message_text(
+        f"✅ Настройка изделия '{product_name}' завершена!\n\n"
+        f"Что делаем дальше?",
+        reply_markup=main_menu_keyboard(user_id)
+    )
+
+
+# ==================== РЕДАКТИРОВАНИЕ И УДАЛЕНИЕ ====================
+
+async def edit_product_select(query: CallbackQuery, user_id: int, page: int = 0):
+    """Показывает список изделий для редактирования"""
+    excel = get_excel_handler()
+    items, total = excel.get_products_by_type('изделие', page, 10)
+    
+    if not items:
+        await query.answer("❌ Нет изделий для редактирования", show_alert=True)
+        return
+    
+    total_pages = (total + 9) // 10
+    
+    text = "✏️ РЕДАКТИРОВАНИЕ ИЗДЕЛИЯ\n\n"
+    text += "Выберите изделие для редактирования:\n"
+    text += f"Страница {page + 1} из {total_pages}"
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=product_edit_select_keyboard(user_id, items, page, total_pages)
+    )
+
+
+async def edit_product_field(query: CallbackQuery, user_id: int, code: str):
+    """Показывает поля для редактирования изделия"""
+    from .router import get_admin_session
+    from states import AdminStates
+    
+    excel = get_excel_handler()
+    product = excel.get_product_by_code(code)
+    
+    if not product:
+        await query.answer("❌ Изделие не найдено", show_alert=True)
+        return
+    
+    session = get_admin_session(user_id)
+    session['state'] = AdminStates.PRODUCT_EDIT_FIELD
+    session['data'] = {'code': code, 'product': product}
+    
+    text = f"✏️ РЕДАКТИРОВАНИЕ: {product['Наименование']}\n\n"
+    text += f"Код: {code}\n"
+    text += f"Текущее название: {product['Наименование']}\n"
+    text += f"Текущая категория: {product.get('Категории', '—')}\n"
+    text += f"Текущая кратность: {product.get('Кратность', 1)}\n"
+    text += f"Текущая цена: {product.get('Цена производства', '0 ISK')}\n\n"
+    text += "Выберите поле для редактирования:"
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=product_edit_field_keyboard(user_id, code)
+    )
+
+
+async def save_product_edit(query: CallbackQuery, user_id: int, code: str, field: str):
+    """Запрашивает новое значение для поля"""
+    from .router import get_admin_session
+    from states import AdminStates
+    
+    session = get_admin_session(user_id)
+    session['state'] = AdminStates.PRODUCT_EDIT_FIELD
+    session['data']['edit_field'] = field
+    session['data']['edit_code'] = code
+    
+    field_names = {
+        'Наименование': 'название',
+        'Кратность': 'кратность',
+        'Цена производства': 'цену производства'
+    }
+    
+    field_name = field_names.get(field, field)
+    
+    if field == 'Категории':
+        excel = get_excel_handler()
+        paths = excel.get_category_paths()
+        await query.edit_message_text(
+            f"✏️ РЕДАКТИРОВАНИЕ\n\n"
+            f"Выберите новую категорию:",
+            reply_markup=product_category_select_keyboard(user_id, paths, f"field_{code}")
+        )
+    else:
+        await query.edit_message_text(
+            f"✏️ РЕДАКТИРОВАНИЕ\n\n"
+            f"Введите новое значение для поля '{field_name}':\n"
+            f"(или нажмите Отмена)",
+            reply_markup=back_to_main_button(user_id)
+        )
+
+
+async def save_product_edit_value(update, user_id: int, text: str):
+    """Сохраняет отредактированное значение"""
+    from .router import get_admin_session, clear_admin_session
+    from keyboards.admin import main_menu_keyboard
+    from utils.validators import validate_price, validate_multiplicity
+    
+    session = get_admin_session(user_id)
+    code = session['data']['edit_code']
+    field = session['data']['edit_field']
+    
+    if field == 'Кратность':
+        value = validate_multiplicity(text)
+        if value is None:
+            await update.message.reply_text(
+                "❌ Введите целое положительное число.",
+                reply_markup=back_to_main_button(user_id)
+            )
+            return
+    elif field == 'Цена производства':
+        value = validate_price(text)
+        if value is None:
+            value = 0
+    else:
+        value = text
+    
+    excel = get_excel_handler()
+    success, message = excel.update_item(code, field, value)
+    
+    clear_admin_session(user_id)
+    
+    await update.message.reply_text(
+        f"{message}\n\nЧто делаем дальше?",
+        reply_markup=main_menu_keyboard(user_id)
+    )
+
+
+async def delete_product_confirm(query: CallbackQuery, user_id: int, page: int = 0):
+    """Показывает список изделий для удаления"""
+    excel = get_excel_handler()
+    items, total = excel.get_products_by_type('изделие', page, 10)
+    
+    if not items:
+        await query.answer("❌ Нет изделий для удаления", show_alert=True)
+        return
+    
+    total_pages = (total + 9) // 10
+    
+    text = "🗑️ УДАЛЕНИЕ ИЗДЕЛИЯ\n\n"
+    text += "⚠️ ВНИМАНИЕ! Будут удалены все связанные спецификации!\n\n"
+    text += "Выберите изделие для удаления:\n"
+    text += f"Страница {page + 1} из {total_pages}"
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=product_delete_select_keyboard(user_id, items, page, total_pages)
+    )
+
+
+async def delete_product_execute(query: CallbackQuery, user_id: int, code: str):
+    """Удаляет изделие"""
+    from keyboards.admin import main_menu_keyboard
+    
+    excel = get_excel_handler()
+    product = excel.get_product_by_code(code)
+    
+    if not product:
+        await query.answer("❌ Изделие не найдено", show_alert=True)
+        return
+    
+    success, message = excel.delete_item(code)
+    
+    if success:
+        await query.edit_message_text(
+            f"✅ Изделие '{product['Наименование']}' удалено.\n\n"
+            f"Что делаем дальше?",
+            reply_markup=main_menu_keyboard(user_id)
+        )
+    else:
+        await query.edit_message_text(
+            f"{message}\n\nЧто делаем дальше?",
+            reply_markup=main_menu_keyboard(user_id)
+        )
+
+
+async def search_products(query: CallbackQuery, user_id: int):
+    """Запрашивает поисковый запрос для изделий"""
+    from .router import get_admin_session
+    from states import AdminStates
+    
+    session = get_admin_session(user_id)
+    session['state'] = AdminStates.PRODUCT_SEARCH
+    session['data'] = {'type': 'изделие'}
+    
+    await query.edit_message_text(
+        "🔍 ПОИСК ИЗДЕЛИЙ\n\n"
+        "Введите название или часть названия изделия:\n"
+        "(или нажмите Отмена)",
+        reply_markup=back_to_main_button(user_id)
+    )
