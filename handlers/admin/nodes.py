@@ -4,10 +4,12 @@ from keyboards.admin import (
     nodes_list_keyboard, node_edit_select_keyboard,
     node_edit_field_keyboard, node_category_select_keyboard,
     node_delete_select_keyboard, back_to_main_button,
-    node_link_menu_keyboard, node_select_materials_keyboard
+    node_link_menu_keyboard, node_select_materials_keyboard,
+    main_menu_keyboard
 )
 from excel_handler import get_excel_handler
 from utils.formatters import format_price
+from states import AdminStates
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +48,6 @@ async def show_nodes_list(query: CallbackQuery, user_id: int, page: int = 0):
 async def add_node_start(query: CallbackQuery, user_id: int):
     """Начинает добавление узла - запрос названия"""
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     session['state'] = AdminStates.NODE_ADD_NAME
@@ -63,7 +64,6 @@ async def add_node_start(query: CallbackQuery, user_id: int):
 async def save_node_name(update, user_id: int, name: str):
     """Сохраняет название и запрашивает категорию"""
     from .router import get_admin_session
-    from states import AdminStates
     from keyboards.admin import node_category_select_keyboard
     
     excel = get_excel_handler()
@@ -94,7 +94,6 @@ async def save_node_name(update, user_id: int, name: str):
 async def save_node_category(query: CallbackQuery, user_id: int, category: str):
     """Сохраняет категорию и запрашивает кратность"""
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     session['data']['category'] = category
@@ -113,7 +112,6 @@ async def save_node_category(query: CallbackQuery, user_id: int, category: str):
 async def save_node_multiplicity(update, user_id: int, text: str):
     """Сохраняет кратность и запрашивает цену производства"""
     from .router import get_admin_session
-    from states import AdminStates
     from utils.validators import validate_multiplicity
     
     mult = validate_multiplicity(text)
@@ -143,7 +141,6 @@ async def save_node_multiplicity(update, user_id: int, text: str):
 async def save_node_price(update, user_id: int, text: str):
     """Сохраняет цену, создаёт узел и переходит к привязке материалов"""
     from .router import get_admin_session, clear_admin_session
-    from keyboards.admin import main_menu_keyboard
     from utils.validators import validate_price
     
     price = validate_price(text)
@@ -170,7 +167,6 @@ async def save_node_price(update, user_id: int, text: str):
         )
         return
     
-    # Сохраняем код узла и переходим к привязке материалов
     session['data']['code'] = code
     session['data']['pending_links'] = []
     session['data']['current_link_index'] = 0
@@ -256,7 +252,6 @@ async def node_toggle_material(query: CallbackQuery, user_id: int, mat_code: str
 async def node_confirm_materials(query: CallbackQuery, user_id: int):
     """Подтверждает выбор материалов и начинает ввод количеств"""
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     selected = session.get('data', {}).get('selected_materials', [])
@@ -362,9 +357,8 @@ async def save_node_material_quantity(update, user_id: int, text: str):
 
 
 async def node_create_material_start(query: CallbackQuery, user_id: int):
-    """Начинает создание нового материала для привязки к узлу"""
+    """Начинает создание нового материала для привязки к узлу (категория = категория узла)"""
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     session['state'] = AdminStates.NODE_CREATE_MATERIAL_NAME
@@ -379,7 +373,7 @@ async def node_create_material_start(query: CallbackQuery, user_id: int):
 
 
 async def node_create_material_save_name(update, user_id: int, name: str):
-    """Сохраняет название нового материала для узла"""
+    """Сохраняет название нового материала и запрашивает цену"""
     excel = get_excel_handler()
     existing = excel.get_product_by_name(name)
     
@@ -391,36 +385,15 @@ async def node_create_material_save_name(update, user_id: int, name: str):
         return
     
     from .router import get_admin_session
-    from states import AdminStates
-    from keyboards.admin import material_category_select_keyboard
     
     session = get_admin_session(user_id)
     session['data']['new_material_name'] = name
-    session['state'] = AdminStates.NODE_CREATE_MATERIAL_CATEGORY
-    
-    paths = excel.get_category_paths()
+    session['state'] = AdminStates.NODE_CREATE_MATERIAL_PRICE
     
     await update.message.reply_text(
         f"🧱 СОЗДАНИЕ МАТЕРИАЛА\n\n"
-        f"Название: {name}\n\n"
-        f"Выберите категорию:",
-        reply_markup=material_category_select_keyboard(user_id, paths, "node_new_mat")
-    )
-
-
-async def node_create_material_save_category(query: CallbackQuery, user_id: int, category: str):
-    """Сохраняет категорию нового материала для узла"""
-    from .router import get_admin_session
-    from states import AdminStates
-    
-    session = get_admin_session(user_id)
-    session['data']['new_material_category'] = category
-    session['state'] = AdminStates.NODE_CREATE_MATERIAL_PRICE
-    
-    await query.edit_message_text(
-        f"🧱 СОЗДАНИЕ МАТЕРИАЛА\n\n"
-        f"Название: {session['data']['new_material_name']}\n"
-        f"Категория: {category}\n\n"
+        f"Название: {name}\n"
+        f"Категория: {session['data']['category']} (от узла)\n\n"
         f"Введите цену материала (ISK, по умолчанию 0):",
         reply_markup=back_to_main_button(user_id)
     )
@@ -435,7 +408,6 @@ async def node_create_material_save_price(update, user_id: int, text: str):
         price = 0
     
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     data = session['data']
@@ -444,7 +416,7 @@ async def node_create_material_save_price(update, user_id: int, text: str):
     success, message, code = excel.add_item(
         'материал',
         data['new_material_name'],
-        data['new_material_category'],
+        data['category'],
         1,
         price
     )
@@ -458,7 +430,7 @@ async def node_create_material_save_price(update, user_id: int, text: str):
     data['current_link_index'] = 0
     data['state'] = AdminStates.NODE_LINK_MATERIAL_QUANTITY
     
-    for key in ['new_material_name', 'new_material_category', 'creating_for_node']:
+    for key in ['new_material_name', 'creating_for_node']:
         if key in data:
             del data[key]
     
@@ -473,8 +445,7 @@ async def node_create_material_save_price(update, user_id: int, text: str):
 
 async def node_finish_setup(query: CallbackQuery, user_id: int):
     """Завершает настройку узла"""
-    from .router import clear_admin_session
-    from keyboards.admin import main_menu_keyboard
+    from .router import clear_admin_session, get_admin_session
     
     session = get_admin_session(user_id)
     node_name = session.get('data', {}).get('name', 'Узел')
@@ -488,7 +459,7 @@ async def node_finish_setup(query: CallbackQuery, user_id: int):
     )
 
 
-# ==================== РЕДАКТИРОВАНИЕ И УДАЛЕНИЕ (без изменений) ====================
+# ==================== РЕДАКТИРОВАНИЕ И УДАЛЕНИЕ ====================
 
 async def edit_node_select(query: CallbackQuery, user_id: int, page: int = 0):
     """Показывает список узлов для редактирования"""
@@ -514,7 +485,6 @@ async def edit_node_select(query: CallbackQuery, user_id: int, page: int = 0):
 async def edit_node_field(query: CallbackQuery, user_id: int, code: str):
     """Показывает поля для редактирования узла"""
     from .router import get_admin_session
-    from states import AdminStates
     
     excel = get_excel_handler()
     node = excel.get_product_by_code(code)
@@ -544,7 +514,6 @@ async def edit_node_field(query: CallbackQuery, user_id: int, code: str):
 async def save_node_edit(query: CallbackQuery, user_id: int, code: str, field: str):
     """Запрашивает новое значение для поля"""
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     session['state'] = AdminStates.NODE_EDIT_FIELD
@@ -579,7 +548,6 @@ async def save_node_edit(query: CallbackQuery, user_id: int, code: str, field: s
 async def save_node_edit_value(update, user_id: int, text: str):
     """Сохраняет отредактированное значение"""
     from .router import get_admin_session, clear_admin_session
-    from keyboards.admin import main_menu_keyboard
     from utils.validators import validate_price, validate_multiplicity
     
     session = get_admin_session(user_id)
@@ -591,7 +559,7 @@ async def save_node_edit_value(update, user_id: int, text: str):
         if value is None:
             await update.message.reply_text(
                 "❌ Введите целое положительное число.",
-                reply_mup=back_to_main_button(user_id)
+                reply_markup=back_to_main_button(user_id)
             )
             return
     elif field == 'Цена производства':
@@ -636,8 +604,6 @@ async def delete_node_confirm(query: CallbackQuery, user_id: int, page: int = 0)
 
 async def delete_node_execute(query: CallbackQuery, user_id: int, code: str):
     """Удаляет узел"""
-    from keyboards.admin import main_menu_keyboard
-    
     excel = get_excel_handler()
     node = excel.get_product_by_code(code)
     
@@ -663,7 +629,6 @@ async def delete_node_execute(query: CallbackQuery, user_id: int, code: str):
 async def search_nodes(query: CallbackQuery, user_id: int):
     """Запрашивает поисковый запрос для узлов"""
     from .router import get_admin_session
-    from states import AdminStates
     
     session = get_admin_session(user_id)
     session['state'] = AdminStates.NODE_SEARCH
