@@ -3,7 +3,7 @@ from telegram import CallbackQuery
 from keyboards.admin import (
     categories_list_keyboard, category_add_parent_keyboard,
     category_edit_select_keyboard, category_delete_select_keyboard,
-    back_to_main_button
+    back_to_main_button, main_menu_keyboard
 )
 from excel_handler import get_excel_handler
 
@@ -69,6 +69,8 @@ async def add_category_parent(query: CallbackQuery, user_id: int, parent: str):
     from .router import get_admin_session
     from states import AdminStates
     
+    logger.info(f"📋 add_category_parent: user={user_id}, parent={parent}")
+    
     session = get_admin_session(user_id)
     session['state'] = AdminStates.CATEGORY_ADD_NAME
     session['data'] = {'parent': parent if parent != 'root' else ''}
@@ -90,7 +92,8 @@ async def add_category_parent(query: CallbackQuery, user_id: int, parent: str):
 async def add_category_save(update, user_id: int, name: str):
     """Сохраняет новую категорию"""
     from .router import get_admin_session, clear_admin_session
-    from keyboards.admin import main_menu_keyboard
+    
+    logger.info(f"📋 add_category_save: user={user_id}, name={name}")
     
     session = get_admin_session(user_id)
     parent = session.get('data', {}).get('parent', '')
@@ -102,6 +105,8 @@ async def add_category_save(update, user_id: int, name: str):
     
     excel = get_excel_handler()
     success, message = excel.add_category(full_path)
+    
+    logger.info(f"📋 add_category_save: success={success}, message={message}")
     
     if success:
         clear_admin_session(user_id)
@@ -139,14 +144,14 @@ async def edit_category_name(query: CallbackQuery, user_id: int, old_path: str):
     from .router import get_admin_session
     from states import AdminStates
     
+    logger.info(f"📋 edit_category_name: user={user_id}, old_path={old_path}")
+    
     session = get_admin_session(user_id)
     session['state'] = AdminStates.CATEGORY_EDIT_NAME
     session['data'] = {'old_path': old_path}
     
-    # Получаем последнюю часть пути (имя категории)
     parts = old_path.split(" > ")
     old_name = parts[-1]
-    parent = " > ".join(parts[:-1]) if len(parts) > 1 else ""
     
     await query.edit_message_text(
         f"✏️ РЕДАКТИРОВАНИЕ КАТЕГОРИИ\n\n"
@@ -160,7 +165,8 @@ async def edit_category_name(query: CallbackQuery, user_id: int, old_path: str):
 async def edit_category_save(update, user_id: int, new_name: str):
     """Сохраняет переименованную категорию"""
     from .router import get_admin_session, clear_admin_session
-    from keyboards.admin import main_menu_keyboard
+    
+    logger.info(f"📋 edit_category_save: user={user_id}, new_name={new_name}")
     
     session = get_admin_session(user_id)
     old_path = session.get('data', {}).get('old_path', '')
@@ -175,6 +181,8 @@ async def edit_category_save(update, user_id: int, new_name: str):
     
     excel = get_excel_handler()
     success, message = excel.rename_category(old_path, new_path)
+    
+    logger.info(f"📋 edit_category_save: success={success}, message={message}")
     
     if success:
         clear_admin_session(user_id)
@@ -194,6 +202,8 @@ async def delete_category_confirm(query: CallbackQuery, user_id: int):
     excel = get_excel_handler()
     paths = excel.get_category_paths()
     
+    logger.info(f"📋 delete_category_confirm: user={user_id}, paths_count={len(paths)}")
+    
     if not paths:
         await query.answer("❌ Нет категорий для удаления", show_alert=True)
         return
@@ -210,15 +220,20 @@ async def delete_category_confirm(query: CallbackQuery, user_id: int):
 
 async def delete_category_execute(query: CallbackQuery, user_id: int, category_path: str):
     """Удаляет категорию"""
-    from keyboards.admin import main_menu_keyboard
+    logger.info(f"📋 delete_category_execute: user={user_id}, category_path={category_path}")
     
     excel = get_excel_handler()
     
-    if not excel.is_category_empty(category_path):
+    # Проверяем, пуста ли категория
+    is_empty = excel.is_category_empty(category_path)
+    logger.info(f"📋 delete_category_execute: is_empty={is_empty}")
+    
+    if not is_empty:
         await query.answer("❌ Категория не пуста! Сначала удалите все элементы и подкатегории.", show_alert=True)
         return
     
     success, message = excel.delete_category(category_path)
+    logger.info(f"📋 delete_category_execute: success={success}, message={message}")
     
     if success:
         await query.edit_message_text(
