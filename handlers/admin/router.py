@@ -1,7 +1,7 @@
 import logging
 from telegram import Update, CallbackQuery
 from telegram.ext import ContextTypes
-from keyboards.admin import main_menu_keyboard, cancel_button
+from keyboards.admin import main_menu_keyboard, cancel_button, restore_callback_data, clear_hash_mapping
 from handlers.auth import is_admin
 from states import AdminStates
 
@@ -25,6 +25,7 @@ def clear_admin_session(user_id: int):
     """Очистить сессию админа"""
     if user_id in admin_sessions:
         del admin_sessions[user_id]
+    clear_hash_mapping(user_id)
 
 
 async def admin_router(query: CallbackQuery, user_id: int, action: str, context: ContextTypes.DEFAULT_TYPE):
@@ -118,17 +119,20 @@ async def admin_router(query: CallbackQuery, user_id: int, action: str, context:
         return
     
     if action.startswith("admin_cat_parent_"):
-        parent = action.replace("admin_cat_parent_", "")
+        data = action.replace("admin_cat_parent_", "")
+        parent = restore_callback_data(user_id, "admin_cat_parent", data)
         await add_category_parent(query, user_id, parent)
         return
     
     if action.startswith("admin_cat_edit_"):
-        category = action.replace("admin_cat_edit_", "")
+        data = action.replace("admin_cat_edit_", "")
+        category = restore_callback_data(user_id, "admin_cat_edit", data)
         await edit_category_name(query, user_id, category)
         return
     
     if action.startswith("admin_cat_delete_"):
-        category = action.replace("admin_cat_delete_", "")
+        data = action.replace("admin_cat_delete_", "")
+        category = restore_callback_data(user_id, "admin_cat_delete", data)
         await delete_category_execute(query, user_id, category)
         return
     
@@ -165,22 +169,27 @@ async def admin_router(query: CallbackQuery, user_id: int, action: str, context:
         return
     
     if action.startswith("admin_prod_edit_"):
-        code = action.replace("admin_prod_edit_", "")
+        data = action.replace("admin_prod_edit_", "")
+        code = restore_callback_data(user_id, "admin_prod_edit", data)
         await edit_product_field(query, user_id, code)
         return
     
     if action.startswith("admin_prod_delete_"):
-        code = action.replace("admin_prod_delete_", "")
+        data = action.replace("admin_prod_delete_", "")
+        code = restore_callback_data(user_id, "admin_prod_delete", data)
         await delete_product_execute(query, user_id, code)
         return
     
     if action.startswith("admin_prod_cat_"):
-        category = action.replace("admin_prod_cat_", "")
+        data = action.replace("admin_prod_cat_", "")
+        category = restore_callback_data(user_id, "admin_prod_cat", data)
         await save_product_category(query, user_id, category)
         return
     
     if action.startswith("admin_prod_field_"):
-        parts = action.replace("admin_prod_field_", "").split("_")
+        data = action.replace("admin_prod_field_", "")
+        restored = restore_callback_data(user_id, "admin_prod_field", data)
+        parts = restored.split("_")
         code = parts[0]
         field = "_".join(parts[1:])
         await save_product_edit(query, user_id, code, field)
@@ -219,22 +228,27 @@ async def admin_router(query: CallbackQuery, user_id: int, action: str, context:
         return
     
     if action.startswith("admin_node_edit_"):
-        code = action.replace("admin_node_edit_", "")
+        data = action.replace("admin_node_edit_", "")
+        code = restore_callback_data(user_id, "admin_node_edit", data)
         await edit_node_field(query, user_id, code)
         return
     
     if action.startswith("admin_node_delete_"):
-        code = action.replace("admin_node_delete_", "")
+        data = action.replace("admin_node_delete_", "")
+        code = restore_callback_data(user_id, "admin_node_delete", data)
         await delete_node_execute(query, user_id, code)
         return
     
     if action.startswith("admin_node_cat_"):
-        category = action.replace("admin_node_cat_", "")
+        data = action.replace("admin_node_cat_", "")
+        category = restore_callback_data(user_id, "admin_node_cat", data)
         await save_node_category(query, user_id, category)
         return
     
     if action.startswith("admin_node_field_"):
-        parts = action.replace("admin_node_field_", "").split("_")
+        data = action.replace("admin_node_field_", "")
+        restored = restore_callback_data(user_id, "admin_node_field", data)
+        parts = restored.split("_")
         code = parts[0]
         field = "_".join(parts[1:])
         await save_node_edit(query, user_id, code, field)
@@ -273,22 +287,27 @@ async def admin_router(query: CallbackQuery, user_id: int, action: str, context:
         return
     
     if action.startswith("admin_mat_edit_"):
-        code = action.replace("admin_mat_edit_", "")
+        data = action.replace("admin_mat_edit_", "")
+        code = restore_callback_data(user_id, "admin_mat_edit", data)
         await edit_material_field(query, user_id, code)
         return
     
     if action.startswith("admin_mat_delete_"):
-        code = action.replace("admin_mat_delete_", "")
+        data = action.replace("admin_mat_delete_", "")
+        code = restore_callback_data(user_id, "admin_mat_delete", data)
         await delete_material_execute(query, user_id, code)
         return
     
     if action.startswith("admin_mat_cat_"):
-        category = action.replace("admin_mat_cat_", "")
+        data = action.replace("admin_mat_cat_", "")
+        category = restore_callback_data(user_id, "admin_mat_cat", data)
         await save_material_category(query, user_id, category)
         return
     
     if action.startswith("admin_mat_field_"):
-        parts = action.replace("admin_mat_field_", "").split("_")
+        data = action.replace("admin_mat_field_", "")
+        restored = restore_callback_data(user_id, "admin_mat_field", data)
+        parts = restored.split("_")
         code = parts[0]
         field = "_".join(parts[1:])
         await save_material_edit(query, user_id, code, field)
@@ -301,57 +320,72 @@ async def admin_router(query: CallbackQuery, user_id: int, action: str, context:
         return
     
     if action.startswith("admin_spec_parent_"):
-        parent_code = action.replace("admin_spec_parent_", "")
+        data = action.replace("admin_spec_parent_", "")
+        parent_code = restore_callback_data(user_id, "admin_spec_parent", data)
         await show_spec_menu(query, user_id, parent_code)
         return
     
     if action.startswith("admin_spec_link_node_"):
-        parent_code = action.replace("admin_spec_link_node_", "")
+        data = action.replace("admin_spec_link_node_", "")
+        parent_code = restore_callback_data(user_id, "admin_spec_link_node", data)
         await link_node_select(query, user_id, parent_code, page=0)
         return
     
     if action.startswith("admin_spec_node_page_"):
-        parts = action.replace("admin_spec_node_page_", "").split("_")
+        data = action.replace("admin_spec_node_page_", "")
+        restored = restore_callback_data(user_id, "admin_spec_node_page", data)
+        parts = restored.split("_")
         parent_code = parts[0]
         page = int(parts[1])
         await link_node_select(query, user_id, parent_code, page)
         return
     
     if action.startswith("admin_spec_link_material_"):
-        parent_code = action.replace("admin_spec_link_material_", "")
+        data = action.replace("admin_spec_link_material_", "")
+        parent_code = restore_callback_data(user_id, "admin_spec_link_material", data)
         await link_material_select(query, user_id, parent_code, page=0)
         return
     
     if action.startswith("admin_spec_mat_page_"):
-        parts = action.replace("admin_spec_mat_page_", "").split("_")
+        data = action.replace("admin_spec_mat_page_", "")
+        restored = restore_callback_data(user_id, "admin_spec_mat_page", data)
+        parts = restored.split("_")
         parent_code = parts[0]
         page = int(parts[1])
         await link_material_select(query, user_id, parent_code, page)
         return
     
     if action.startswith("admin_spec_node_select_"):
-        parts = action.replace("admin_spec_node_select_", "").split("_")
+        data = action.replace("admin_spec_node_select_", "")
+        restored = restore_callback_data(user_id, "admin_spec_node_select", data)
+        parts = restored.split("_")
         parent_code = parts[0]
         node_code = "_".join(parts[1:])
         await link_node_quantity(query, user_id, parent_code, node_code)
         return
     
     if action.startswith("admin_spec_mat_select_"):
-        parts = action.replace("admin_spec_mat_select_", "").split("_")
+        data = action.replace("admin_spec_mat_select_", "")
+        restored = restore_callback_data(user_id, "admin_spec_mat_select", data)
+        parts = restored.split("_")
         parent_code = parts[0]
         mat_code = "_".join(parts[1:])
         await link_material_quantity(query, user_id, parent_code, mat_code)
         return
     
     if action.startswith("admin_spec_unlink_"):
-        parts = action.replace("admin_spec_unlink_", "").split("_")
+        data = action.replace("admin_spec_unlink_", "")
+        restored = restore_callback_data(user_id, "admin_spec_unlink", data)
+        parts = restored.split("_")
         parent_code = parts[0]
         child_code = "_".join(parts[1:])
         await unlink_spec_confirm(query, user_id, parent_code, child_code)
         return
     
     if action.startswith("admin_confirm_delete_spec_"):
-        parts = action.replace("admin_confirm_delete_spec_", "").split("_")
+        data = action.replace("admin_confirm_delete_spec_", "")
+        restored = restore_callback_data(user_id, "admin_confirm_delete_spec", data)
+        parts = restored.split("_")
         parent_code = parts[0]
         child_code = "_".join(parts[1:])
         await unlink_spec_execute(query, user_id, parent_code, child_code)
@@ -367,12 +401,14 @@ async def admin_router(query: CallbackQuery, user_id: int, action: str, context:
         return
     
     if action.startswith("admin_admins_remove_"):
-        admin_id = int(action.replace("admin_admins_remove_", ""))
+        data = action.replace("admin_admins_remove_", "")
+        admin_id = int(restore_callback_data(user_id, "admin_admins_remove", data))
         await delete_admin_execute(query, user_id, admin_id)
         return
     
     if action.startswith("admin_admins_toggle_"):
-        admin_id = int(action.replace("admin_admins_toggle_", ""))
+        data = action.replace("admin_admins_toggle_", "")
+        admin_id = int(restore_callback_data(user_id, "admin_admins_toggle", data))
         await toggle_admin_execute(query, user_id, admin_id)
         return
     
@@ -383,13 +419,13 @@ async def admin_router(query: CallbackQuery, user_id: int, action: str, context:
         return
     
     if action.startswith("admin_search_item_"):
-        code = action.replace("admin_search_item_", "")
+        data = action.replace("admin_search_item_", "")
+        code = restore_callback_data(user_id, "admin_search_item", data)
         await show_search_results(query, user_id, 0)
         return
     
     # ==================== ПОДТВЕРЖДЕНИЕ УДАЛЕНИЯ ====================
     if action.startswith("admin_confirm_delete_"):
-        # Обрабатывается в соответствующих модулях
         logger.warning(f"Необработанный confirm_delete: {action}")
         return
     
