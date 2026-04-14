@@ -3,7 +3,8 @@ from telegram import CallbackQuery
 from keyboards.admin import (
     nodes_list_keyboard, node_edit_select_keyboard,
     node_edit_field_keyboard, node_category_select_keyboard,
-    node_delete_select_keyboard, back_to_main_button
+    node_delete_select_keyboard, back_to_main_button,
+    node_link_menu_keyboard, node_select_materials_keyboard
 )
 from excel_handler import get_excel_handler
 from utils.formatters import format_price
@@ -140,7 +141,7 @@ async def save_node_multiplicity(update, user_id: int, text: str):
 
 
 async def save_node_price(update, user_id: int, text: str):
-    """Сохраняет цену и завершает добавление узла"""
+    """Сохраняет цену, создаёт узел и переходит к привязке материалов"""
     from .router import get_admin_session, clear_admin_session
     from keyboards.admin import main_menu_keyboard
     from utils.validators import validate_price
@@ -161,21 +162,333 @@ async def save_node_price(update, user_id: int, text: str):
         price
     )
     
-    clear_admin_session(user_id)
-    
-    if success:
-        await update.message.reply_text(
-            f"✅ Узел '{data['name']}' добавлен!\n"
-            f"Код: {code}\n\n"
-            f"Что делаем дальше?",
-            reply_markup=main_menu_keyboard(user_id)
-        )
-    else:
+    if not success:
+        clear_admin_session(user_id)
         await update.message.reply_text(
             f"{message}\n\nЧто делаем дальше?",
             reply_markup=main_menu_keyboard(user_id)
         )
+        return
+    
+    # Сохраняем код узла и переходим к привязке материалов
+    session['data']['code'] = code
+    session['data']['pending_links'] = []
+    session['data']['current_link_index'] = 0
+    session['state'] = AdminStates.NODE_LINK_MENU
+    
+    await update.message.reply_text(
+        f"✅ Узел '{data['name']}' создан!\n"
+        f"Код: {code}\n\n"
+        f"Теперь можно привязать материалы.\n"
+        f"Выберите действие:",
+        reply_markup=node_link_menu_keyboard(user_id, code)
+    )
 
+
+async def show_node_link_menu(query: CallbackQuery, user_id: int):
+    """Показывает меню привязки для узла"""
+    from .router import get_admin_session
+    
+    session = get_admin_session(user_id)
+    code = session.get('data', {}).get('code', '')
+    
+    if not code:
+        await query.answer("❌ Ошибка: узел не найден", show_alert=True)
+        return
+    
+    text = "🔗 ПРИВЯЗКА МАТЕРИАЛОВ\n\n"
+    text += "Выберите действие:\n"
+    text += "• Привязать существующий материал\n"
+    text += "• Создать новый материал (сразу привяжется)\n"
+    text += "• Завершить настройку"
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=node_link_menu_keyboard(user_id, code)
+    )
+
+
+async def node_link_material_select(query: CallbackQuery, user_id: int, page: int = 0):
+    """Показывает список материалов для множественного выбора"""
+    excel = get_excel_handler()
+    materials, total = excel.get_products_by_type('материал', page, 10)
+    
+    if not materials:
+        await query.answer("❌ Нет доступных материалов. Создайте новый материал.", show_alert=True)
+        return
+    
+    from .router import get_admin_session
+    session = get_admin_session(user_id)
+    selected = set(session.get('data', {}).get('selected_materials', []))
+    
+    total_pages = (total + 9) // 10
+    
+    text = "🧱 ВЫБОР МАТЕРИАЛОВ\n\n"
+    text += "Выберите материалы для привязки (можно несколько):\n"
+    text += f"Страница {page + 1} из {total_pages}\n\n"
+    
+    for mat in materials:
+        checkbox = "☑️" if mat['code'] in selected else "☐"
+        text += f"{checkbox} {mat['name']} ({mat['code']})\n"
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=node_select_materials_keyboard(user_id, materials, page, total_pages, selected)
+    )
+
+
+async def node_toggle_material(query: CallbackQuery, user_id: int, mat_code: str):
+    """Переключает выбор материала"""
+    from .router import get_admin_session
+    
+    session = get_admin_session(user_id)
+    selected = session.get('data', {}).get('selected_materials', [])
+    
+    if mat_code in selected:
+        selected.remove(mat_code)
+    else:
+        selected.append(mat_code)
+    
+    session['data']['selected_materials'] = selected
+    await node_link_material_select(query, user_id, 0)
+
+
+async def node_confirm_materials(query: CallbackQuery, user_id: int):
+    """Подтверждает выбор материалов и начинает ввод количеств"""
+    from .router import get_admin_session
+    from states import AdminStates
+    
+    session = get_admin_session(user_id)
+    selected = session.get('data', {}).get('selected_materials', [])
+    
+    if not selected:
+        await query.answer("❌ Выберите хотя бы один материал", show_alert=True)
+        return
+    
+    excel = get_excel_handler()
+    materials_to_link = []
+    for code in selected:
+        mat = excel.get_product_by_code(code)
+        if mat:
+            materials_to_link.append({
+                'code': code,
+                'name': mat['Наименование']
+            })
+    
+    session['data']['pending_links'] = materials_to_link
+    session['data']['link_type'] = 'material'
+    session['data']['current_link_index'] = 0
+    session['data']['selected_materials'] = []
+    session['state'] = AdminStates.NODE_LINK_MATERIAL_QUANTITY
+    
+    await _ask_next_material_quantity(query, user_id)
+
+
+async def _ask_next_material_quantity(query: CallbackQuery, user_id: int):
+    """Запрашивает количество для следующего материала"""
+    from .router import get_admin_session
+    
+    session = get_admin_session(user_id)
+    pending = session.get('data', {}).get('pending_links', [])
+    index = session.get('data', {}).get('current_link_index', 0)
+    
+    if index >= len(pending):
+        await show_node_link_menu(query, user_id)
+        return
+    
+    mat = pending[index]
+    
+    await query.edit_message_text(
+        f"🧱 КОЛИЧЕСТВО МАТЕРИАЛА ({index + 1}/{len(pending)})\n\n"
+        f"Материал: {mat['name']}\n"
+        f"Код: {mat['code']}\n\n"
+        f"Введите количество, необходимое для производства\n"
+        f"одного чертежа узла при эффективности 150%:\n"
+        f"(или нажмите Отмена)",
+        reply_markup=back_to_main_button(user_id)
+    )
+
+
+async def save_node_material_quantity(update, user_id: int, text: str):
+    """Сохраняет количество материала и переходит к следующему"""
+    from .router import get_admin_session
+    from utils.validators import validate_float
+    
+    quantity = validate_float(text, min_val=0.01)
+    if quantity is None:
+        await update.message.reply_text(
+            "❌ Введите положительное число.",
+            reply_markup=back_to_main_button(user_id)
+        )
+        return
+    
+    session = get_admin_session(user_id)
+    data = session['data']
+    node_code = data['code']
+    pending = data.get('pending_links', [])
+    index = data.get('current_link_index', 0)
+    
+    if index < len(pending):
+        mat = pending[index]
+        excel = get_excel_handler()
+        excel.add_specification(node_code, mat['code'], quantity)
+        
+        data['current_link_index'] = index + 1
+        
+        if data['current_link_index'] < len(pending):
+            await update.message.reply_text(
+                f"✅ Количество для '{mat['name']}' сохранено."
+            )
+            pending = data.get('pending_links', [])
+            idx = data.get('current_link_index', 0)
+            mat = pending[idx]
+            await update.message.reply_text(
+                f"🧱 КОЛИЧЕСТВО МАТЕРИАЛА ({idx + 1}/{len(pending)})\n\n"
+                f"Материал: {mat['name']}\n"
+                f"Код: {mat['code']}\n\n"
+                f"Введите количество, необходимое для производства\n"
+                f"одного чертежа узла при эффективности 150%:\n"
+                f"(или нажмите Отмена)",
+                reply_markup=back_to_main_button(user_id)
+            )
+        else:
+            await update.message.reply_text(
+                f"✅ Все материалы привязаны!\n\nЧто делаем дальше?",
+                reply_markup=node_link_menu_keyboard(user_id, node_code)
+            )
+            data['pending_links'] = []
+            data['current_link_index'] = 0
+            data['link_type'] = None
+
+
+async def node_create_material_start(query: CallbackQuery, user_id: int):
+    """Начинает создание нового материала для привязки к узлу"""
+    from .router import get_admin_session
+    from states import AdminStates
+    
+    session = get_admin_session(user_id)
+    session['state'] = AdminStates.NODE_CREATE_MATERIAL_NAME
+    session['data']['creating_for_node'] = True
+    
+    await query.edit_message_text(
+        "🧱 СОЗДАНИЕ НОВОГО МАТЕРИАЛА\n\n"
+        "Введите название нового материала:\n"
+        "(или нажмите Отмена)",
+        reply_markup=back_to_main_button(user_id)
+    )
+
+
+async def node_create_material_save_name(update, user_id: int, name: str):
+    """Сохраняет название нового материала для узла"""
+    excel = get_excel_handler()
+    existing = excel.get_product_by_name(name)
+    
+    if existing:
+        await update.message.reply_text(
+            "❌ Материал с таким названием уже существует.",
+            reply_markup=back_to_main_button(user_id)
+        )
+        return
+    
+    from .router import get_admin_session
+    from states import AdminStates
+    from keyboards.admin import material_category_select_keyboard
+    
+    session = get_admin_session(user_id)
+    session['data']['new_material_name'] = name
+    session['state'] = AdminStates.NODE_CREATE_MATERIAL_CATEGORY
+    
+    paths = excel.get_category_paths()
+    
+    await update.message.reply_text(
+        f"🧱 СОЗДАНИЕ МАТЕРИАЛА\n\n"
+        f"Название: {name}\n\n"
+        f"Выберите категорию:",
+        reply_markup=material_category_select_keyboard(user_id, paths, "node_new_mat")
+    )
+
+
+async def node_create_material_save_category(query: CallbackQuery, user_id: int, category: str):
+    """Сохраняет категорию нового материала для узла"""
+    from .router import get_admin_session
+    from states import AdminStates
+    
+    session = get_admin_session(user_id)
+    session['data']['new_material_category'] = category
+    session['state'] = AdminStates.NODE_CREATE_MATERIAL_PRICE
+    
+    await query.edit_message_text(
+        f"🧱 СОЗДАНИЕ МАТЕРИАЛА\n\n"
+        f"Название: {session['data']['new_material_name']}\n"
+        f"Категория: {category}\n\n"
+        f"Введите цену материала (ISK, по умолчанию 0):",
+        reply_markup=back_to_main_button(user_id)
+    )
+
+
+async def node_create_material_save_price(update, user_id: int, text: str):
+    """Сохраняет цену, создаёт материал и запрашивает количество для привязки к узлу"""
+    from utils.validators import validate_price
+    
+    price = validate_price(text)
+    if price is None:
+        price = 0
+    
+    from .router import get_admin_session
+    from states import AdminStates
+    
+    session = get_admin_session(user_id)
+    data = session['data']
+    
+    excel = get_excel_handler()
+    success, message, code = excel.add_item(
+        'материал',
+        data['new_material_name'],
+        data['new_material_category'],
+        1,
+        price
+    )
+    
+    if not success:
+        await update.message.reply_text(f"{message}", reply_markup=back_to_main_button(user_id))
+        return
+    
+    data['pending_links'] = [{'code': code, 'name': data['new_material_name']}]
+    data['link_type'] = 'material'
+    data['current_link_index'] = 0
+    data['state'] = AdminStates.NODE_LINK_MATERIAL_QUANTITY
+    
+    for key in ['new_material_name', 'new_material_category', 'creating_for_node']:
+        if key in data:
+            del data[key]
+    
+    await update.message.reply_text(
+        f"✅ Материал '{data['pending_links'][0]['name']}' создан!\n"
+        f"Код: {code}\n\n"
+        f"Введите количество, необходимое для производства\n"
+        f"одного чертежа узла при эффективности 150%:",
+        reply_markup=back_to_main_button(user_id)
+    )
+
+
+async def node_finish_setup(query: CallbackQuery, user_id: int):
+    """Завершает настройку узла"""
+    from .router import clear_admin_session
+    from keyboards.admin import main_menu_keyboard
+    
+    session = get_admin_session(user_id)
+    node_name = session.get('data', {}).get('name', 'Узел')
+    
+    clear_admin_session(user_id)
+    
+    await query.edit_message_text(
+        f"✅ Настройка узла '{node_name}' завершена!\n\n"
+        f"Что делаем дальше?",
+        reply_markup=main_menu_keyboard(user_id)
+    )
+
+
+# ==================== РЕДАКТИРОВАНИЕ И УДАЛЕНИЕ (без изменений) ====================
 
 async def edit_node_select(query: CallbackQuery, user_id: int, page: int = 0):
     """Показывает список узлов для редактирования"""
@@ -278,7 +591,7 @@ async def save_node_edit_value(update, user_id: int, text: str):
         if value is None:
             await update.message.reply_text(
                 "❌ Введите целое положительное число.",
-                reply_markup=back_to_main_button(user_id)
+                reply_mup=back_to_main_button(user_id)
             )
             return
     elif field == 'Цена производства':
