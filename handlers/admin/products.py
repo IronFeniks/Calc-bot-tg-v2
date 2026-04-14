@@ -167,7 +167,6 @@ async def save_product_price(update, user_id: int, text: str):
         )
         return
     
-    # Сохраняем код изделия и переходим к привязке
     session['data']['code'] = code
     session['data']['pending_links'] = []
     session['data']['current_link_index'] = 0
@@ -263,7 +262,6 @@ async def product_confirm_nodes(query: CallbackQuery, user_id: int):
         await query.answer("❌ Выберите хотя бы один узел", show_alert=True)
         return
     
-    # Формируем список для пошагового ввода
     excel = get_excel_handler()
     nodes_to_link = []
     for code in selected:
@@ -277,7 +275,7 @@ async def product_confirm_nodes(query: CallbackQuery, user_id: int):
     session['data']['pending_links'] = nodes_to_link
     session['data']['link_type'] = 'node'
     session['data']['current_link_index'] = 0
-    session['data']['selected_nodes'] = []  # Очищаем выбор
+    session['data']['selected_nodes'] = []
     session['state'] = AdminStates.PRODUCT_LINK_NODE_QUANTITY
     
     await _ask_next_node_quantity(query, user_id)
@@ -292,7 +290,6 @@ async def _ask_next_node_quantity(query: CallbackQuery, user_id: int):
     index = session.get('data', {}).get('current_link_index', 0)
     
     if index >= len(pending):
-        # Все узлы обработаны
         await show_product_link_menu(query, user_id)
         return
     
@@ -336,11 +333,9 @@ async def save_node_quantity(update, user_id: int, text: str):
         data['current_link_index'] = index + 1
         
         if data['current_link_index'] < len(pending):
-            # Ещё есть узлы
             await update.message.reply_text(
                 f"✅ Количество для '{node['name']}' сохранено."
             )
-            # Продолжаем ввод
             pending = data.get('pending_links', [])
             idx = data.get('current_link_index', 0)
             node = pending[idx]
@@ -354,7 +349,6 @@ async def save_node_quantity(update, user_id: int, text: str):
                 reply_markup=back_to_main_button(user_id)
             )
         else:
-            # Все узлы обработаны
             await update.message.reply_text(
                 f"✅ Все узлы привязаны!\n\nЧто делаем дальше?",
                 reply_markup=product_link_menu_keyboard(user_id, product_code)
@@ -517,7 +511,7 @@ async def save_material_quantity(update, user_id: int, text: str):
 
 
 async def product_create_node_start(query: CallbackQuery, user_id: int):
-    """Начинает создание нового узла для привязки"""
+    """Начинает создание нового узла для привязки (категория = категория изделия)"""
     from .router import get_admin_session
     
     session = get_admin_session(user_id)
@@ -533,7 +527,7 @@ async def product_create_node_start(query: CallbackQuery, user_id: int):
 
 
 async def product_create_node_save_name(update, user_id: int, name: str):
-    """Сохраняет название нового узла"""
+    """Сохраняет название нового узла и запрашивает кратность"""
     excel = get_excel_handler()
     existing = excel.get_product_by_name(name)
     
@@ -546,41 +540,22 @@ async def product_create_node_save_name(update, user_id: int, name: str):
         return
     
     from .router import get_admin_session
-    from keyboards.admin import node_category_select_keyboard
     
     session = get_admin_session(user_id)
     session['data']['new_node_name'] = name
-    session['state'] = AdminStates.PRODUCT_CREATE_NODE_CATEGORY
-    
-    paths = excel.get_category_paths()
+    session['state'] = AdminStates.PRODUCT_CREATE_NODE_MULTIPLICITY
     
     await update.message.reply_text(
         f"🔩 СОЗДАНИЕ УЗЛА\n\n"
-        f"Название: {name}\n\n"
-        f"Выберите категорию:",
-        reply_markup=node_category_select_keyboard(user_id, paths, "prod_new_node")
-    )
-
-
-async def product_create_node_save_category(query: CallbackQuery, user_id: int, category: str):
-    """Сохраняет категорию нового узла"""
-    from .router import get_admin_session
-    
-    session = get_admin_session(user_id)
-    session['data']['new_node_category'] = category
-    session['state'] = AdminStates.PRODUCT_CREATE_NODE_MULTIPLICITY
-    
-    await query.edit_message_text(
-        f"🔩 СОЗДАНИЕ УЗЛА\n\n"
-        f"Название: {session['data']['new_node_name']}\n"
-        f"Категория: {category}\n\n"
+        f"Название: {name}\n"
+        f"Категория: {session['data']['category']} (от изделия)\n\n"
         f"Введите кратность (целое число, по умолчанию 1):",
         reply_markup=back_to_main_button(user_id)
     )
 
 
 async def product_create_node_save_multiplicity(update, user_id: int, text: str):
-    """Сохраняет кратность нового узла"""
+    """Сохраняет кратность нового узла и запрашивает цену"""
     from utils.validators import validate_multiplicity
     
     mult = validate_multiplicity(text)
@@ -600,7 +575,7 @@ async def product_create_node_save_multiplicity(update, user_id: int, text: str)
     await update.message.reply_text(
         f"🔩 СОЗДАНИЕ УЗЛА\n\n"
         f"Название: {session['data']['new_node_name']}\n"
-        f"Категория: {session['data']['new_node_category']}\n"
+        f"Категория: {session['data']['category']}\n"
         f"Кратность: {mult}\n\n"
         f"Введите цену производства (ISK, по умолчанию 0):",
         reply_markup=back_to_main_button(user_id)
@@ -624,7 +599,7 @@ async def product_create_node_save_price(update, user_id: int, text: str):
     success, message, code = excel.add_item(
         'узел',
         data['new_node_name'],
-        data['new_node_category'],
+        data['category'],
         data['new_node_multiplicity'],
         price
     )
@@ -636,14 +611,12 @@ async def product_create_node_save_price(update, user_id: int, text: str):
         )
         return
     
-    # Сохраняем узел для привязки и запрашиваем количество
     data['pending_links'] = [{'code': code, 'name': data['new_node_name']}]
     data['link_type'] = 'node'
     data['current_link_index'] = 0
     data['state'] = AdminStates.PRODUCT_LINK_NODE_QUANTITY
     
-    # Очищаем временные данные создания
-    for key in ['new_node_name', 'new_node_category', 'new_node_multiplicity', 'creating_for_product']:
+    for key in ['new_node_name', 'new_node_multiplicity', 'creating_for_product']:
         if key in data:
             del data[key]
     
@@ -657,7 +630,7 @@ async def product_create_node_save_price(update, user_id: int, text: str):
 
 
 async def product_create_material_start(query: CallbackQuery, user_id: int):
-    """Начинает создание нового материала для привязки"""
+    """Начинает создание нового материала для привязки (категория = категория изделия)"""
     from .router import get_admin_session
     
     session = get_admin_session(user_id)
@@ -673,7 +646,7 @@ async def product_create_material_start(query: CallbackQuery, user_id: int):
 
 
 async def product_create_material_save_name(update, user_id: int, name: str):
-    """Сохраняет название нового материала"""
+    """Сохраняет название нового материала и запрашивает цену"""
     excel = get_excel_handler()
     existing = excel.get_product_by_name(name)
     
@@ -685,34 +658,15 @@ async def product_create_material_save_name(update, user_id: int, name: str):
         return
     
     from .router import get_admin_session
-    from keyboards.admin import material_category_select_keyboard
     
     session = get_admin_session(user_id)
     session['data']['new_material_name'] = name
-    session['state'] = AdminStates.PRODUCT_CREATE_MATERIAL_CATEGORY
-    
-    paths = excel.get_category_paths()
+    session['state'] = AdminStates.PRODUCT_CREATE_MATERIAL_PRICE
     
     await update.message.reply_text(
         f"🧱 СОЗДАНИЕ МАТЕРИАЛА\n\n"
-        f"Название: {name}\n\n"
-        f"Выберите категорию:",
-        reply_markup=material_category_select_keyboard(user_id, paths, "prod_new_mat")
-    )
-
-
-async def product_create_material_save_category(query: CallbackQuery, user_id: int, category: str):
-    """Сохраняет категорию нового материала"""
-    from .router import get_admin_session
-    
-    session = get_admin_session(user_id)
-    session['data']['new_material_category'] = category
-    session['state'] = AdminStates.PRODUCT_CREATE_MATERIAL_PRICE
-    
-    await query.edit_message_text(
-        f"🧱 СОЗДАНИЕ МАТЕРИАЛА\n\n"
-        f"Название: {session['data']['new_material_name']}\n"
-        f"Категория: {category}\n\n"
+        f"Название: {name}\n"
+        f"Категория: {session['data']['category']} (от изделия)\n\n"
         f"Введите цену материала (ISK, по умолчанию 0):",
         reply_markup=back_to_main_button(user_id)
     )
@@ -735,7 +689,7 @@ async def product_create_material_save_price(update, user_id: int, text: str):
     success, message, code = excel.add_item(
         'материал',
         data['new_material_name'],
-        data['new_material_category'],
+        data['category'],
         1,
         price
     )
@@ -749,7 +703,7 @@ async def product_create_material_save_price(update, user_id: int, text: str):
     data['current_link_index'] = 0
     data['state'] = AdminStates.PRODUCT_LINK_MATERIAL_QUANTITY
     
-    for key in ['new_material_name', 'new_material_category', 'creating_for_product']:
+    for key in ['new_material_name', 'creating_for_product']:
         if key in data:
             del data[key]
     
@@ -764,10 +718,8 @@ async def product_create_material_save_price(update, user_id: int, text: str):
 
 async def product_finish_setup(query: CallbackQuery, user_id: int):
     """Завершает настройку изделия"""
-    from .router import clear_admin_session
+    from .router import clear_admin_session, get_admin_session
     
-    # Исправлено: get_admin_session вместо get_session
-    from .router import get_admin_session
     session = get_admin_session(user_id)
     product_name = session.get('data', {}).get('name', 'Изделие')
     
