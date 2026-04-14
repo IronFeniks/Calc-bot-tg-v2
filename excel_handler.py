@@ -60,7 +60,7 @@ class ExcelHandler:
     def save_data(self) -> Tuple[bool, str]:
         """Сохраняет данные в Excel файл"""
         try:
-            temp_file = self.file_path + ".tmp"
+            temp_file = self.file_path + ".xlsx.tmp"
             
             with pd.ExcelWriter(temp_file, engine='openpyxl') as writer:
                 if self.df_nomenclature is not None:
