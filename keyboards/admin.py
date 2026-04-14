@@ -25,7 +25,6 @@ def make_callback(user_id: int, action: str, data: str = "") -> str:
     if len(base.encode()) <= 64:
         return base
     
-    # Если длинно, берём хэш
     data_hash = hashlib.md5(data.encode()).hexdigest()[:8]
     mapping = get_hash_mapping(user_id)
     mapping[f"{action}_{data_hash}"] = data
@@ -649,5 +648,154 @@ def search_results_keyboard(user_id: int, items: list, page: int, total_pages: i
     
     keyboard.append([InlineKeyboardButton("🔍 Новый поиск", callback_data=make_callback(user_id, "admin_search"))])
     keyboard.append([InlineKeyboardButton("🔙 В главное меню", callback_data=make_callback(user_id, "admin_back_to_main"))])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+
+# ==================== МЕНЮ ПРИВЯЗКИ ДЛЯ ИЗДЕЛИЯ ====================
+
+def product_link_menu_keyboard(user_id: int, product_code: str) -> InlineKeyboardMarkup:
+    """Меню привязки компонентов к изделию"""
+    keyboard = [
+        [InlineKeyboardButton(
+            "🔩 Привязать существующий узел",
+            callback_data=make_callback(user_id, "admin_prod_link_node", product_code)
+        )],
+        [InlineKeyboardButton(
+            "🧱 Привязать существующий материал",
+            callback_data=make_callback(user_id, "admin_prod_link_material", product_code)
+        )],
+        [InlineKeyboardButton(
+            "➕ Создать новый узел",
+            callback_data=make_callback(user_id, "admin_prod_create_node", product_code)
+        )],
+        [InlineKeyboardButton(
+            "➕ Создать новый материал",
+            callback_data=make_callback(user_id, "admin_prod_create_material", product_code)
+        )],
+        [InlineKeyboardButton(
+            "✅ Завершить настройку",
+            callback_data=make_callback(user_id, "admin_prod_finish", product_code)
+        )]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def product_select_nodes_keyboard(user_id: int, nodes: list, page: int, total_pages: int, selected: set) -> InlineKeyboardMarkup:
+    """Клавиатура множественного выбора узлов"""
+    keyboard = []
+    
+    for node in nodes:
+        checkbox = "☑️" if node['code'] in selected else "☐"
+        keyboard.append([InlineKeyboardButton(
+            f"{checkbox} {node['name']} ({node['code']})",
+            callback_data=make_callback(user_id, "admin_prod_toggle_node", node['code'])
+        )])
+    
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, "admin_prod_nodes_page", str(page-1))))
+    if total_pages > 0:
+        nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, "admin_prod_nodes_page", str(page+1))))
+    if nav_row:
+        keyboard.append(nav_row)
+    
+    keyboard.append([InlineKeyboardButton(
+        "✅ Подтвердить выбор",
+        callback_data=make_callback(user_id, "admin_prod_confirm_nodes")
+    )])
+    keyboard.append([InlineKeyboardButton(
+        "🔙 Назад",
+        callback_data=make_callback(user_id, "admin_prod_back_to_link_menu")
+    )])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+
+def product_select_materials_keyboard(user_id: int, materials: list, page: int, total_pages: int, selected: set) -> InlineKeyboardMarkup:
+    """Клавиатура множественного выбора материалов"""
+    keyboard = []
+    
+    for mat in materials:
+        checkbox = "☑️" if mat['code'] in selected else "☐"
+        keyboard.append([InlineKeyboardButton(
+            f"{checkbox} {mat['name']} ({mat['code']})",
+            callback_data=make_callback(user_id, "admin_prod_toggle_material", mat['code'])
+        )])
+    
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, "admin_prod_materials_page", str(page-1))))
+    if total_pages > 0:
+        nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, "admin_prod_materials_page", str(page+1))))
+    if nav_row:
+        keyboard.append(nav_row)
+    
+    keyboard.append([InlineKeyboardButton(
+        "✅ Подтвердить выбор",
+        callback_data=make_callback(user_id, "admin_prod_confirm_materials")
+    )])
+    keyboard.append([InlineKeyboardButton(
+        "🔙 Назад",
+        callback_data=make_callback(user_id, "admin_prod_back_to_link_menu")
+    )])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+
+# ==================== МЕНЮ ПРИВЯЗКИ ДЛЯ УЗЛА ====================
+
+def node_link_menu_keyboard(user_id: int, node_code: str) -> InlineKeyboardMarkup:
+    """Меню привязки материалов к узлу"""
+    keyboard = [
+        [InlineKeyboardButton(
+            "🧱 Привязать существующий материал",
+            callback_data=make_callback(user_id, "admin_node_link_material", node_code)
+        )],
+        [InlineKeyboardButton(
+            "➕ Создать новый материал",
+            callback_data=make_callback(user_id, "admin_node_create_material", node_code)
+        )],
+        [InlineKeyboardButton(
+            "✅ Завершить настройку",
+            callback_data=make_callback(user_id, "admin_node_finish", node_code)
+        )]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def node_select_materials_keyboard(user_id: int, materials: list, page: int, total_pages: int, selected: set) -> InlineKeyboardMarkup:
+    """Клавиатура множественного выбора материалов для узла"""
+    keyboard = []
+    
+    for mat in materials:
+        checkbox = "☑️" if mat['code'] in selected else "☐"
+        keyboard.append([InlineKeyboardButton(
+            f"{checkbox} {mat['name']} ({mat['code']})",
+            callback_data=make_callback(user_id, "admin_node_toggle_material", mat['code'])
+        )])
+    
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, "admin_node_materials_page", str(page-1))))
+    if total_pages > 0:
+        nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, "admin_node_materials_page", str(page+1))))
+    if nav_row:
+        keyboard.append(nav_row)
+    
+    keyboard.append([InlineKeyboardButton(
+        "✅ Подтвердить выбор",
+        callback_data=make_callback(user_id, "admin_node_confirm_materials")
+    )])
+    keyboard.append([InlineKeyboardButton(
+        "🔙 Назад",
+        callback_data=make_callback(user_id, "admin_node_back_to_link_menu")
+    )])
     
     return InlineKeyboardMarkup(keyboard)
