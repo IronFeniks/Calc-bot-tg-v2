@@ -37,11 +37,25 @@ async def admin_router(query: CallbackQuery, user_id: int, action: str, context:
         edit_category_select, edit_category_name, edit_category_save,
         delete_category_confirm, delete_category_execute,
         show_products_list, add_product_start, save_product_name, save_product_category,
-        save_product_multiplicity, save_product_price, edit_product_select, edit_product_field,
-        save_product_edit, delete_product_confirm, delete_product_execute, search_products,
+        save_product_multiplicity, save_product_price,
+        show_product_link_menu, product_link_node_select, product_toggle_node,
+        product_confirm_nodes, product_link_material_select, product_toggle_material,
+        product_confirm_materials, product_create_node_start, product_create_node_save_name,
+        product_create_node_save_category, product_create_node_save_multiplicity,
+        product_create_node_save_price, product_create_material_start,
+        product_create_material_save_name, product_create_material_save_category,
+        product_create_material_save_price, product_finish_setup,
+        save_node_quantity, save_material_quantity,
+        edit_product_select, edit_product_field, save_product_edit,
+        delete_product_confirm, delete_product_execute, search_products,
         show_nodes_list, add_node_start, save_node_name, save_node_category,
-        save_node_multiplicity, save_node_price, edit_node_select, edit_node_field,
-        save_node_edit, delete_node_confirm, delete_node_execute, search_nodes,
+        save_node_multiplicity, save_node_price,
+        show_node_link_menu, node_link_material_select, node_toggle_material,
+        node_confirm_materials, node_create_material_start, node_create_material_save_name,
+        node_create_material_save_category, node_create_material_save_price,
+        node_finish_setup, save_node_material_quantity,
+        edit_node_select, edit_node_field, save_node_edit,
+        delete_node_confirm, delete_node_execute, search_nodes,
         show_materials_list, add_material_start, save_material_name, save_material_category,
         save_material_price, edit_material_select, edit_material_field,
         save_material_edit, delete_material_confirm, delete_material_execute, search_materials,
@@ -195,6 +209,71 @@ async def admin_router(query: CallbackQuery, user_id: int, action: str, context:
         await save_product_edit(query, user_id, code, field)
         return
     
+    # ==================== ПРИВЯЗКА К ИЗДЕЛИЮ ====================
+    if action.startswith("admin_prod_link_node_"):
+        data = action.replace("admin_prod_link_node_", "")
+        product_code = restore_callback_data(user_id, "admin_prod_link_node", data)
+        await product_link_node_select(query, user_id, page=0)
+        return
+    
+    if action.startswith("admin_prod_link_material_"):
+        data = action.replace("admin_prod_link_material_", "")
+        product_code = restore_callback_data(user_id, "admin_prod_link_material", data)
+        await product_link_material_select(query, user_id, page=0)
+        return
+    
+    if action.startswith("admin_prod_create_node_"):
+        data = action.replace("admin_prod_create_node_", "")
+        product_code = restore_callback_data(user_id, "admin_prod_create_node", data)
+        await product_create_node_start(query, user_id)
+        return
+    
+    if action.startswith("admin_prod_create_material_"):
+        data = action.replace("admin_prod_create_material_", "")
+        product_code = restore_callback_data(user_id, "admin_prod_create_material", data)
+        await product_create_material_start(query, user_id)
+        return
+    
+    if action.startswith("admin_prod_finish_"):
+        data = action.replace("admin_prod_finish_", "")
+        product_code = restore_callback_data(user_id, "admin_prod_finish", data)
+        await product_finish_setup(query, user_id)
+        return
+    
+    if action == "admin_prod_back_to_link_menu":
+        await show_product_link_menu(query, user_id)
+        return
+    
+    if action.startswith("admin_prod_toggle_node_"):
+        data = action.replace("admin_prod_toggle_node_", "")
+        node_code = restore_callback_data(user_id, "admin_prod_toggle_node", data)
+        await product_toggle_node(query, user_id, node_code)
+        return
+    
+    if action == "admin_prod_confirm_nodes":
+        await product_confirm_nodes(query, user_id)
+        return
+    
+    if action.startswith("admin_prod_nodes_page_"):
+        page = int(action.replace("admin_prod_nodes_page_", ""))
+        await product_link_node_select(query, user_id, page)
+        return
+    
+    if action.startswith("admin_prod_toggle_material_"):
+        data = action.replace("admin_prod_toggle_material_", "")
+        mat_code = restore_callback_data(user_id, "admin_prod_toggle_material", data)
+        await product_toggle_material(query, user_id, mat_code)
+        return
+    
+    if action == "admin_prod_confirm_materials":
+        await product_confirm_materials(query, user_id)
+        return
+    
+    if action.startswith("admin_prod_materials_page_"):
+        page = int(action.replace("admin_prod_materials_page_", ""))
+        await product_link_material_select(query, user_id, page)
+        return
+    
     # ==================== УЗЛЫ ====================
     if action == "admin_nodes_add":
         await add_node_start(query, user_id)
@@ -252,6 +331,44 @@ async def admin_router(query: CallbackQuery, user_id: int, action: str, context:
         code = parts[0]
         field = "_".join(parts[1:])
         await save_node_edit(query, user_id, code, field)
+        return
+    
+    # ==================== ПРИВЯЗКА К УЗЛУ ====================
+    if action.startswith("admin_node_link_material_"):
+        data = action.replace("admin_node_link_material_", "")
+        node_code = restore_callback_data(user_id, "admin_node_link_material", data)
+        await node_link_material_select(query, user_id, page=0)
+        return
+    
+    if action.startswith("admin_node_create_material_"):
+        data = action.replace("admin_node_create_material_", "")
+        node_code = restore_callback_data(user_id, "admin_node_create_material", data)
+        await node_create_material_start(query, user_id)
+        return
+    
+    if action.startswith("admin_node_finish_"):
+        data = action.replace("admin_node_finish_", "")
+        node_code = restore_callback_data(user_id, "admin_node_finish", data)
+        await node_finish_setup(query, user_id)
+        return
+    
+    if action == "admin_node_back_to_link_menu":
+        await show_node_link_menu(query, user_id)
+        return
+    
+    if action.startswith("admin_node_toggle_material_"):
+        data = action.replace("admin_node_toggle_material_", "")
+        mat_code = restore_callback_data(user_id, "admin_node_toggle_material", data)
+        await node_toggle_material(query, user_id, mat_code)
+        return
+    
+    if action == "admin_node_confirm_materials":
+        await node_confirm_materials(query, user_id)
+        return
+    
+    if action.startswith("admin_node_materials_page_"):
+        page = int(action.replace("admin_node_materials_page_", ""))
+        await node_link_material_select(query, user_id, page)
         return
     
     # ==================== МАТЕРИАЛЫ ====================
