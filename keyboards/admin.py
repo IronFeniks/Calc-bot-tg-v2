@@ -1,8 +1,22 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import hashlib
 
+# Словарь для хранения маппинга хэшей к оригинальным данным
+_hash_mapping = {}
+
+def get_hash_mapping(user_id: int) -> dict:
+    """Получить маппинг хэшей для пользователя"""
+    if user_id not in _hash_mapping:
+        _hash_mapping[user_id] = {}
+    return _hash_mapping[user_id]
+
+def clear_hash_mapping(user_id: int):
+    """Очистить маппинг хэшей для пользователя"""
+    if user_id in _hash_mapping:
+        _hash_mapping[user_id] = {}
+
 def make_callback(user_id: int, action: str, data: str = "") -> str:
-    """Создаёт callback_data с проверкой длины"""
+    """Создаёт callback_data с проверкой длины (Telegram лимит 64 байта)"""
     if data:
         base = f"user_{user_id}_{action}_{data}"
     else:
@@ -11,8 +25,20 @@ def make_callback(user_id: int, action: str, data: str = "") -> str:
     if len(base.encode()) <= 64:
         return base
     
+    # Если длинно, берём хэш
     data_hash = hashlib.md5(data.encode()).hexdigest()[:8]
+    mapping = get_hash_mapping(user_id)
+    mapping[f"{action}_{data_hash}"] = data
+    
     return f"user_{user_id}_{action}_{data_hash}"
+
+def restore_callback_data(user_id: int, action: str, data_hash: str) -> str:
+    """Восстанавливает оригинальные данные из хэша"""
+    mapping = get_hash_mapping(user_id)
+    key = f"{action}_{data_hash}"
+    if key in mapping:
+        return mapping[key]
+    return data_hash
 
 
 def mode_selection_keyboard(user_id: int) -> InlineKeyboardMarkup:
@@ -91,13 +117,13 @@ def category_add_parent_keyboard(user_id: int, paths: list) -> InlineKeyboardMar
     """Клавиатура выбора родительской категории"""
     keyboard = []
     
-    keyboard.append([InlineKeyboardButton("🌳 Корень", callback_data=make_callback(user_id, "admin_cat_parent_root"))])
+    keyboard.append([InlineKeyboardButton("🌳 Корень", callback_data=make_callback(user_id, "admin_cat_parent", "root"))])
     
     for path in paths[:10]:
-        short_path = path[:40] + "..." if len(path) > 40 else path
+        short_path = path[:30] + "..." if len(path) > 30 else path
         keyboard.append([InlineKeyboardButton(
             f"📁 {short_path}",
-            callback_data=make_callback(user_id, f"admin_cat_parent_{path}")
+            callback_data=make_callback(user_id, "admin_cat_parent", path)
         )])
     
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=make_callback(user_id, "admin_categories"))])
@@ -110,10 +136,10 @@ def category_edit_select_keyboard(user_id: int, paths: list) -> InlineKeyboardMa
     keyboard = []
     
     for path in paths[:15]:
-        short_path = path[:40] + "..." if len(path) > 40 else path
+        short_path = path[:30] + "..." if len(path) > 30 else path
         keyboard.append([InlineKeyboardButton(
             f"📁 {short_path}",
-            callback_data=make_callback(user_id, f"admin_cat_edit_{path}")
+            callback_data=make_callback(user_id, "admin_cat_edit", path)
         )])
     
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=make_callback(user_id, "admin_categories"))])
@@ -126,10 +152,10 @@ def category_delete_select_keyboard(user_id: int, paths: list) -> InlineKeyboard
     keyboard = []
     
     for path in paths[:15]:
-        short_path = path[:40] + "..." if len(path) > 40 else path
+        short_path = path[:30] + "..." if len(path) > 30 else path
         keyboard.append([InlineKeyboardButton(
             f"📁 {short_path}",
-            callback_data=make_callback(user_id, f"admin_cat_delete_{path}")
+            callback_data=make_callback(user_id, "admin_cat_delete", path)
         )])
     
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=make_callback(user_id, "admin_categories"))])
@@ -143,7 +169,6 @@ def products_list_keyboard(user_id: int, items: list, page: int, total_pages: in
     """Клавиатура для списка изделий"""
     keyboard = []
     
-    # Кнопки действий
     keyboard.append([InlineKeyboardButton("➕ Добавить изделие", callback_data=make_callback(user_id, "admin_products_add"))])
     
     if items:
@@ -152,14 +177,13 @@ def products_list_keyboard(user_id: int, items: list, page: int, total_pages: in
     
     keyboard.append([InlineKeyboardButton("🔍 Поиск", callback_data=make_callback(user_id, "admin_products_search"))])
     
-    # Пагинация
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, f"admin_products_page_{page-1}")))
+        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, "admin_products_page", str(page-1))))
     if total_pages > 0:
         nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
     if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, f"admin_products_page_{page+1}")))
+        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, "admin_products_page", str(page+1))))
     if nav_row:
         keyboard.append(nav_row)
     
@@ -173,10 +197,10 @@ def product_category_select_keyboard(user_id: int, paths: list, prefix: str) -> 
     keyboard = []
     
     for path in paths[:15]:
-        short_path = path[:40] + "..." if len(path) > 40 else path
+        short_path = path[:30] + "..." if len(path) > 30 else path
         keyboard.append([InlineKeyboardButton(
             f"📁 {short_path}",
-            callback_data=make_callback(user_id, f"admin_{prefix}_cat_{path}")
+            callback_data=make_callback(user_id, f"admin_{prefix}_cat", path)
         )])
     
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=make_callback(user_id, "admin_products"))])
@@ -191,16 +215,16 @@ def product_edit_select_keyboard(user_id: int, items: list, page: int, total_pag
     for item in items:
         keyboard.append([InlineKeyboardButton(
             f"📦 {item['name']} ({item['code']})",
-            callback_data=make_callback(user_id, f"admin_prod_edit_{item['code']}")
+            callback_data=make_callback(user_id, "admin_prod_edit", item['code'])
         )])
     
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, f"admin_products_edit_page_{page-1}")))
+        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, "admin_products_edit_page", str(page-1))))
     if total_pages > 0:
         nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
     if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, f"admin_products_edit_page_{page+1}")))
+        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, "admin_products_edit_page", str(page+1))))
     if nav_row:
         keyboard.append(nav_row)
     
@@ -212,10 +236,10 @@ def product_edit_select_keyboard(user_id: int, items: list, page: int, total_pag
 def product_edit_field_keyboard(user_id: int, code: str) -> InlineKeyboardMarkup:
     """Клавиатура выбора поля для редактирования изделия"""
     keyboard = [
-        [InlineKeyboardButton("📝 Название", callback_data=make_callback(user_id, f"admin_prod_field_{code}_Наименование"))],
-        [InlineKeyboardButton("📂 Категория", callback_data=make_callback(user_id, f"admin_prod_field_{code}_Категории"))],
-        [InlineKeyboardButton("🔢 Кратность", callback_data=make_callback(user_id, f"admin_prod_field_{code}_Кратность"))],
-        [InlineKeyboardButton("💰 Цена производства", callback_data=make_callback(user_id, f"admin_prod_field_{code}_Цена производства"))],
+        [InlineKeyboardButton("📝 Название", callback_data=make_callback(user_id, f"admin_prod_field", f"{code}_Наименование"))],
+        [InlineKeyboardButton("📂 Категория", callback_data=make_callback(user_id, f"admin_prod_field", f"{code}_Категории"))],
+        [InlineKeyboardButton("🔢 Кратность", callback_data=make_callback(user_id, f"admin_prod_field", f"{code}_Кратность"))],
+        [InlineKeyboardButton("💰 Цена производства", callback_data=make_callback(user_id, f"admin_prod_field", f"{code}_Цена производства"))],
         [InlineKeyboardButton("🔙 Назад", callback_data=make_callback(user_id, "admin_products_edit"))]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -228,16 +252,16 @@ def product_delete_select_keyboard(user_id: int, items: list, page: int, total_p
     for item in items:
         keyboard.append([InlineKeyboardButton(
             f"❌ {item['name']} ({item['code']})",
-            callback_data=make_callback(user_id, f"admin_prod_delete_{item['code']}")
+            callback_data=make_callback(user_id, "admin_prod_delete", item['code'])
         )])
     
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, f"admin_products_delete_page_{page-1}")))
+        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, "admin_products_delete_page", str(page-1))))
     if total_pages > 0:
         nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
     if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, f"admin_products_delete_page_{page+1}")))
+        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, "admin_products_delete_page", str(page+1))))
     if nav_row:
         keyboard.append(nav_row)
     
@@ -262,11 +286,11 @@ def nodes_list_keyboard(user_id: int, items: list, page: int, total_pages: int) 
     
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, f"admin_nodes_page_{page-1}")))
+        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, "admin_nodes_page", str(page-1))))
     if total_pages > 0:
         nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
     if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, f"admin_nodes_page_{page+1}")))
+        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, "admin_nodes_page", str(page+1))))
     if nav_row:
         keyboard.append(nav_row)
     
@@ -280,10 +304,10 @@ def node_category_select_keyboard(user_id: int, paths: list, prefix: str) -> Inl
     keyboard = []
     
     for path in paths[:15]:
-        short_path = path[:40] + "..." if len(path) > 40 else path
+        short_path = path[:30] + "..." if len(path) > 30 else path
         keyboard.append([InlineKeyboardButton(
             f"📁 {short_path}",
-            callback_data=make_callback(user_id, f"admin_{prefix}_cat_{path}")
+            callback_data=make_callback(user_id, f"admin_{prefix}_cat", path)
         )])
     
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=make_callback(user_id, "admin_nodes"))])
@@ -298,16 +322,16 @@ def node_edit_select_keyboard(user_id: int, items: list, page: int, total_pages:
     for item in items:
         keyboard.append([InlineKeyboardButton(
             f"🔧 {item['name']} ({item['code']})",
-            callback_data=make_callback(user_id, f"admin_node_edit_{item['code']}")
+            callback_data=make_callback(user_id, "admin_node_edit", item['code'])
         )])
     
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, f"admin_nodes_edit_page_{page-1}")))
+        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, "admin_nodes_edit_page", str(page-1))))
     if total_pages > 0:
         nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
     if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, f"admin_nodes_edit_page_{page+1}")))
+        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, "admin_nodes_edit_page", str(page+1))))
     if nav_row:
         keyboard.append(nav_row)
     
@@ -319,10 +343,10 @@ def node_edit_select_keyboard(user_id: int, items: list, page: int, total_pages:
 def node_edit_field_keyboard(user_id: int, code: str) -> InlineKeyboardMarkup:
     """Клавиатура выбора поля для редактирования узла"""
     keyboard = [
-        [InlineKeyboardButton("📝 Название", callback_data=make_callback(user_id, f"admin_node_field_{code}_Наименование"))],
-        [InlineKeyboardButton("📂 Категория", callback_data=make_callback(user_id, f"admin_node_field_{code}_Категории"))],
-        [InlineKeyboardButton("🔢 Кратность", callback_data=make_callback(user_id, f"admin_node_field_{code}_Кратность"))],
-        [InlineKeyboardButton("💰 Цена производства", callback_data=make_callback(user_id, f"admin_node_field_{code}_Цена производства"))],
+        [InlineKeyboardButton("📝 Название", callback_data=make_callback(user_id, f"admin_node_field", f"{code}_Наименование"))],
+        [InlineKeyboardButton("📂 Категория", callback_data=make_callback(user_id, f"admin_node_field", f"{code}_Категории"))],
+        [InlineKeyboardButton("🔢 Кратность", callback_data=make_callback(user_id, f"admin_node_field", f"{code}_Кратность"))],
+        [InlineKeyboardButton("💰 Цена производства", callback_data=make_callback(user_id, f"admin_node_field", f"{code}_Цена производства"))],
         [InlineKeyboardButton("🔙 Назад", callback_data=make_callback(user_id, "admin_nodes_edit"))]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -335,16 +359,16 @@ def node_delete_select_keyboard(user_id: int, items: list, page: int, total_page
     for item in items:
         keyboard.append([InlineKeyboardButton(
             f"❌ {item['name']} ({item['code']})",
-            callback_data=make_callback(user_id, f"admin_node_delete_{item['code']}")
+            callback_data=make_callback(user_id, "admin_node_delete", item['code'])
         )])
     
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, f"admin_nodes_delete_page_{page-1}")))
+        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, "admin_nodes_delete_page", str(page-1))))
     if total_pages > 0:
         nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
     if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, f"admin_nodes_delete_page_{page+1}")))
+        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, "admin_nodes_delete_page", str(page+1))))
     if nav_row:
         keyboard.append(nav_row)
     
@@ -369,11 +393,11 @@ def materials_list_keyboard(user_id: int, items: list, page: int, total_pages: i
     
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, f"admin_materials_page_{page-1}")))
+        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, "admin_materials_page", str(page-1))))
     if total_pages > 0:
         nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
     if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, f"admin_materials_page_{page+1}")))
+        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, "admin_materials_page", str(page+1))))
     if nav_row:
         keyboard.append(nav_row)
     
@@ -387,10 +411,10 @@ def material_category_select_keyboard(user_id: int, paths: list, prefix: str) ->
     keyboard = []
     
     for path in paths[:15]:
-        short_path = path[:40] + "..." if len(path) > 40 else path
+        short_path = path[:30] + "..." if len(path) > 30 else path
         keyboard.append([InlineKeyboardButton(
             f"📁 {short_path}",
-            callback_data=make_callback(user_id, f"admin_{prefix}_cat_{path}")
+            callback_data=make_callback(user_id, f"admin_{prefix}_cat", path)
         )])
     
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=make_callback(user_id, "admin_materials"))])
@@ -405,16 +429,16 @@ def material_edit_select_keyboard(user_id: int, items: list, page: int, total_pa
     for item in items:
         keyboard.append([InlineKeyboardButton(
             f"🧱 {item['name']} ({item['code']})",
-            callback_data=make_callback(user_id, f"admin_mat_edit_{item['code']}")
+            callback_data=make_callback(user_id, "admin_mat_edit", item['code'])
         )])
     
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, f"admin_materials_edit_page_{page-1}")))
+        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, "admin_materials_edit_page", str(page-1))))
     if total_pages > 0:
         nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
     if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, f"admin_materials_edit_page_{page+1}")))
+        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, "admin_materials_edit_page", str(page+1))))
     if nav_row:
         keyboard.append(nav_row)
     
@@ -426,9 +450,9 @@ def material_edit_select_keyboard(user_id: int, items: list, page: int, total_pa
 def material_edit_field_keyboard(user_id: int, code: str) -> InlineKeyboardMarkup:
     """Клавиатура выбора поля для редактирования материала"""
     keyboard = [
-        [InlineKeyboardButton("📝 Название", callback_data=make_callback(user_id, f"admin_mat_field_{code}_Наименование"))],
-        [InlineKeyboardButton("📂 Категория", callback_data=make_callback(user_id, f"admin_mat_field_{code}_Категории"))],
-        [InlineKeyboardButton("💰 Цена", callback_data=make_callback(user_id, f"admin_mat_field_{code}_Цена производства"))],
+        [InlineKeyboardButton("📝 Название", callback_data=make_callback(user_id, f"admin_mat_field", f"{code}_Наименование"))],
+        [InlineKeyboardButton("📂 Категория", callback_data=make_callback(user_id, f"admin_mat_field", f"{code}_Категории"))],
+        [InlineKeyboardButton("💰 Цена", callback_data=make_callback(user_id, f"admin_mat_field", f"{code}_Цена производства"))],
         [InlineKeyboardButton("🔙 Назад", callback_data=make_callback(user_id, "admin_materials_edit"))]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -441,16 +465,16 @@ def material_delete_select_keyboard(user_id: int, items: list, page: int, total_
     for item in items:
         keyboard.append([InlineKeyboardButton(
             f"❌ {item['name']} ({item['code']})",
-            callback_data=make_callback(user_id, f"admin_mat_delete_{item['code']}")
+            callback_data=make_callback(user_id, "admin_mat_delete", item['code'])
         )])
     
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, f"admin_materials_delete_page_{page-1}")))
+        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, "admin_materials_delete_page", str(page-1))))
     if total_pages > 0:
         nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
     if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, f"admin_materials_delete_page_{page+1}")))
+        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, "admin_materials_delete_page", str(page+1))))
     if nav_row:
         keyboard.append(nav_row)
     
@@ -469,16 +493,16 @@ def spec_parent_select_keyboard(user_id: int, items: list, page: int, total_page
         icon = "🏗️" if item['type'] == 'изделие' else "🔩"
         keyboard.append([InlineKeyboardButton(
             f"{icon} {item['name']} ({item['code']})",
-            callback_data=make_callback(user_id, f"admin_spec_parent_{item['code']}")
+            callback_data=make_callback(user_id, "admin_spec_parent", item['code'])
         )])
     
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, f"admin_spec_page_{page-1}")))
+        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, "admin_spec_page", str(page-1))))
     if total_pages > 0:
         nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
     if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, f"admin_spec_page_{page+1}")))
+        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, "admin_spec_page", str(page+1))))
     if nav_row:
         keyboard.append(nav_row)
     
@@ -494,12 +518,12 @@ def spec_menu_keyboard(user_id: int, parent_code: str, parent_type: str) -> Inli
     if parent_type in ['изделие', 'узел']:
         keyboard.append([InlineKeyboardButton(
             "🔩 Привязать узел",
-            callback_data=make_callback(user_id, f"admin_spec_link_node_{parent_code}")
+            callback_data=make_callback(user_id, "admin_spec_link_node", parent_code)
         )])
     
     keyboard.append([InlineKeyboardButton(
         "🧱 Привязать материал",
-        callback_data=make_callback(user_id, f"admin_spec_link_material_{parent_code}")
+        callback_data=make_callback(user_id, "admin_spec_link_material", parent_code)
     )])
     
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=make_callback(user_id, "admin_spec"))])
@@ -514,16 +538,16 @@ def spec_node_select_keyboard(user_id: int, parent_code: str, nodes: list, page:
     for node in nodes:
         keyboard.append([InlineKeyboardButton(
             f"🔩 {node['name']} ({node['code']})",
-            callback_data=make_callback(user_id, f"admin_spec_node_select_{parent_code}_{node['code']}")
+            callback_data=make_callback(user_id, "admin_spec_node_select", f"{parent_code}_{node['code']}")
         )])
     
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, f"admin_spec_node_page_{parent_code}_{page-1}")))
+        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, "admin_spec_node_page", f"{parent_code}_{page-1}")))
     if total_pages > 0:
         nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
     if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, f"admin_spec_node_page_{parent_code}_{page+1}")))
+        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, "admin_spec_node_page", f"{parent_code}_{page+1}")))
     if nav_row:
         keyboard.append(nav_row)
     
@@ -539,16 +563,16 @@ def spec_material_select_keyboard(user_id: int, parent_code: str, materials: lis
     for material in materials:
         keyboard.append([InlineKeyboardButton(
             f"🧱 {material['name']} ({material['code']})",
-            callback_data=make_callback(user_id, f"admin_spec_mat_select_{parent_code}_{material['code']}")
+            callback_data=make_callback(user_id, "admin_spec_mat_select", f"{parent_code}_{material['code']}")
         )])
     
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, f"admin_spec_mat_page_{parent_code}_{page-1}")))
+        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, "admin_spec_mat_page", f"{parent_code}_{page-1}")))
     if total_pages > 0:
         nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
     if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, f"admin_spec_mat_page_{parent_code}_{page+1}")))
+        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, "admin_spec_mat_page", f"{parent_code}_{page+1}")))
     if nav_row:
         keyboard.append(nav_row)
     
@@ -572,12 +596,12 @@ def admins_list_keyboard(user_id: int, admins: list) -> InlineKeyboardMarkup:
             if admin.get('is_active', 1) == 1:
                 keyboard.append([InlineKeyboardButton(
                     f"❌ Деактивировать {admin['user_id']}",
-                    callback_data=make_callback(user_id, f"admin_admins_toggle_{admin['user_id']}")
+                    callback_data=make_callback(user_id, "admin_admins_toggle", str(admin['user_id']))
                 )])
             else:
                 keyboard.append([InlineKeyboardButton(
                     f"✅ Активировать {admin['user_id']}",
-                    callback_data=make_callback(user_id, f"admin_admins_toggle_{admin['user_id']}")
+                    callback_data=make_callback(user_id, "admin_admins_toggle", str(admin['user_id']))
                 )])
     
     keyboard.append([InlineKeyboardButton("🔙 В главное меню", callback_data=make_callback(user_id, "admin_back_to_main"))])
@@ -592,7 +616,7 @@ def admin_delete_select_keyboard(user_id: int, admins: list) -> InlineKeyboardMa
     for admin in admins:
         keyboard.append([InlineKeyboardButton(
             f"❌ ID: {admin['user_id']} — {admin.get('first_name', '—')}",
-            callback_data=make_callback(user_id, f"admin_admins_remove_{admin['user_id']}")
+            callback_data=make_callback(user_id, "admin_admins_remove", str(admin['user_id']))
         )])
     
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=make_callback(user_id, "admin_admins"))])
@@ -610,16 +634,16 @@ def search_results_keyboard(user_id: int, items: list, page: int, total_pages: i
         icon = "🏗️" if item['type'] == 'изделие' else ("🔩" if item['type'] == 'узел' else "🧱")
         keyboard.append([InlineKeyboardButton(
             f"{icon} {item['name']}",
-            callback_data=make_callback(user_id, f"admin_search_item_{item['code']}")
+            callback_data=make_callback(user_id, "admin_search_item", item['code'])
         )])
     
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, f"admin_search_page_{page-1}")))
+        nav_row.append(InlineKeyboardButton("◀️", callback_data=make_callback(user_id, "admin_search_page", str(page-1))))
     if total_pages > 0:
         nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
     if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, f"admin_search_page_{page+1}")))
+        nav_row.append(InlineKeyboardButton("▶️", callback_data=make_callback(user_id, "admin_search_page", str(page+1))))
     if nav_row:
         keyboard.append(nav_row)
     
