@@ -17,9 +17,29 @@ from .products import (
     save_product_category,
     save_product_multiplicity,
     save_product_price,
+    show_product_link_menu,
+    product_link_node_select,
+    product_toggle_node,
+    product_confirm_nodes,
+    product_link_material_select,
+    product_toggle_material,
+    product_confirm_materials,
+    product_create_node_start,
+    product_create_node_save_name,
+    product_create_node_save_category,
+    product_create_node_save_multiplicity,
+    product_create_node_save_price,
+    product_create_material_start,
+    product_create_material_save_name,
+    product_create_material_save_category,
+    product_create_material_save_price,
+    product_finish_setup,
+    save_node_quantity,
+    save_material_quantity,
     edit_product_select,
     edit_product_field,
     save_product_edit,
+    save_product_edit_value,
     delete_product_confirm,
     delete_product_execute,
     search_products
@@ -31,9 +51,20 @@ from .nodes import (
     save_node_category,
     save_node_multiplicity,
     save_node_price,
+    show_node_link_menu,
+    node_link_material_select,
+    node_toggle_material,
+    node_confirm_materials,
+    node_create_material_start,
+    node_create_material_save_name,
+    node_create_material_save_category,
+    node_create_material_save_price,
+    node_finish_setup,
+    save_node_material_quantity,
     edit_node_select,
     edit_node_field,
     save_node_edit,
+    save_node_edit_value,
     delete_node_confirm,
     delete_node_execute,
     search_nodes
@@ -47,6 +78,7 @@ from .materials import (
     edit_material_select,
     edit_material_field,
     save_material_edit,
+    save_material_edit_value,
     delete_material_confirm,
     delete_material_execute,
     search_materials
@@ -77,7 +109,7 @@ from .search import (
     show_search_results
 )
 
-# Импортируем основные функции админки из admin.py (которые были там раньше)
+# Импортируем основные функции админки
 import logging
 from telegram import Update, CallbackQuery
 from telegram.ext import ContextTypes
@@ -161,6 +193,26 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await save_product_multiplicity(update, user_id, text)
     elif state == AdminStates.PRODUCT_ADD_PRICE:
         await save_product_price(update, user_id, text)
+    elif state == AdminStates.PRODUCT_LINK_NODE_QUANTITY:
+        await save_node_quantity(update, user_id, text)
+    elif state == AdminStates.PRODUCT_LINK_MATERIAL_QUANTITY:
+        await save_material_quantity(update, user_id, text)
+    elif state == AdminStates.PRODUCT_CREATE_NODE_NAME:
+        await product_create_node_save_name(update, user_id, text)
+    elif state == AdminStates.PRODUCT_CREATE_NODE_MULTIPLICITY:
+        await product_create_node_save_multiplicity(update, user_id, text)
+    elif state == AdminStates.PRODUCT_CREATE_NODE_PRICE:
+        await product_create_node_save_price(update, user_id, text)
+    elif state == AdminStates.PRODUCT_CREATE_MATERIAL_NAME:
+        await product_create_material_save_name(update, user_id, text)
+    elif state == AdminStates.PRODUCT_CREATE_MATERIAL_PRICE:
+        await product_create_material_save_price(update, user_id, text)
+    elif state == AdminStates.PRODUCT_EDIT_NAME:
+        await save_product_edit_value(update, user_id, text)
+    elif state == AdminStates.PRODUCT_EDIT_MULTIPLICITY:
+        await save_product_edit_value(update, user_id, text)
+    elif state == AdminStates.PRODUCT_EDIT_PRICE:
+        await save_product_edit_value(update, user_id, text)
     elif state == AdminStates.PRODUCT_SEARCH:
         await search_execute(update, user_id, text)
     elif state == AdminStates.NODE_ADD_NAME:
@@ -169,12 +221,28 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await save_node_multiplicity(update, user_id, text)
     elif state == AdminStates.NODE_ADD_PRICE:
         await save_node_price(update, user_id, text)
+    elif state == AdminStates.NODE_LINK_MATERIAL_QUANTITY:
+        await save_node_material_quantity(update, user_id, text)
+    elif state == AdminStates.NODE_CREATE_MATERIAL_NAME:
+        await node_create_material_save_name(update, user_id, text)
+    elif state == AdminStates.NODE_CREATE_MATERIAL_PRICE:
+        await node_create_material_save_price(update, user_id, text)
+    elif state == AdminStates.NODE_EDIT_NAME:
+        await save_node_edit_value(update, user_id, text)
+    elif state == AdminStates.NODE_EDIT_MULTIPLICITY:
+        await save_node_edit_value(update, user_id, text)
+    elif state == AdminStates.NODE_EDIT_PRICE:
+        await save_node_edit_value(update, user_id, text)
     elif state == AdminStates.NODE_SEARCH:
         await search_execute(update, user_id, text)
     elif state == AdminStates.MATERIAL_ADD_NAME:
         await save_material_name(update, user_id, text)
     elif state == AdminStates.MATERIAL_ADD_PRICE:
         await save_material_price(update, user_id, text)
+    elif state == AdminStates.MATERIAL_EDIT_NAME:
+        await save_material_edit_value(update, user_id, text)
+    elif state == AdminStates.MATERIAL_EDIT_PRICE:
+        await save_material_edit_value(update, user_id, text)
     elif state == AdminStates.MATERIAL_SEARCH:
         await search_execute(update, user_id, text)
     elif state == AdminStates.SPEC_LINK_NODE_QUANTITY:
@@ -252,11 +320,11 @@ async def help_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 🏗️ ИЗДЕЛИЯ, 🔩 УЗЛЫ, ⚙️ МАТЕРИАЛЫ:
 • Просмотр, добавление, редактирование, удаление
+• Привязка компонентов при создании
 • Поиск по названию
 
 🔗 СПЕЦИФИКАЦИИ:
-• Привязка узлов и материалов
-• Указание количества
+• Управление связями
 
 👥 АДМИНИСТРАТОРЫ:
 • Только для главного админа
@@ -296,9 +364,29 @@ __all__ = [
     'save_product_category',
     'save_product_multiplicity',
     'save_product_price',
+    'show_product_link_menu',
+    'product_link_node_select',
+    'product_toggle_node',
+    'product_confirm_nodes',
+    'product_link_material_select',
+    'product_toggle_material',
+    'product_confirm_materials',
+    'product_create_node_start',
+    'product_create_node_save_name',
+    'product_create_node_save_category',
+    'product_create_node_save_multiplicity',
+    'product_create_node_save_price',
+    'product_create_material_start',
+    'product_create_material_save_name',
+    'product_create_material_save_category',
+    'product_create_material_save_price',
+    'product_finish_setup',
+    'save_node_quantity',
+    'save_material_quantity',
     'edit_product_select',
     'edit_product_field',
     'save_product_edit',
+    'save_product_edit_value',
     'delete_product_confirm',
     'delete_product_execute',
     'search_products',
@@ -309,9 +397,20 @@ __all__ = [
     'save_node_category',
     'save_node_multiplicity',
     'save_node_price',
+    'show_node_link_menu',
+    'node_link_material_select',
+    'node_toggle_material',
+    'node_confirm_materials',
+    'node_create_material_start',
+    'node_create_material_save_name',
+    'node_create_material_save_category',
+    'node_create_material_save_price',
+    'node_finish_setup',
+    'save_node_material_quantity',
     'edit_node_select',
     'edit_node_field',
     'save_node_edit',
+    'save_node_edit_value',
     'delete_node_confirm',
     'delete_node_execute',
     'search_nodes',
@@ -324,6 +423,7 @@ __all__ = [
     'edit_material_select',
     'edit_material_field',
     'save_material_edit',
+    'save_material_edit_value',
     'delete_material_confirm',
     'delete_material_execute',
     'search_materials',
